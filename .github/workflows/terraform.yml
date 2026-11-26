@@ -1,0 +1,40 @@
+name: terraform
+# Checks the infrastructure code in ops/aws/ (the training stack and the bot server): formatting
+# and `terraform validate` with providers downloaded but no AWS credentials, so nothing is read
+# from or changed in the account. Applying stays the owner's step on his Mac.
+on:
+  pull_request:
+    paths:
+      - ops/aws/**
+      - .github/workflows/terraform.yml
+  push:
+    branches: [main]
+    paths:
+      - ops/aws/**
+      - .github/workflows/terraform.yml
+concurrency:
+  group: terraform-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  terraform-fmt-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [ops/aws/training, ops/aws/bot]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          # The version the stacks are validated with; the owner's Mac applies with the same minor.
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+      - name: Format
+        run: terraform -chdir=${{ matrix.stack }} fmt -check -recursive
+      - name: Validate
+        run: |
+          terraform -chdir=${{ matrix.stack }} init -backend=false -input=false
+          terraform -chdir=${{ matrix.stack }} validate

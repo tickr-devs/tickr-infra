@@ -1,11 +1,14 @@
 #!/bin/bash
-# First boot of the bot server. Holds no secret: the bot's credentials stay in Secrets Manager
-# until a later step reads them into memory (/run). Re-running this script is safe.
+# First boot of the bot server. Holds no secret: tickr-secrets.service reads the bot's
+# credentials from Secrets Manager into memory (/run/tickr/env) at each boot. Re-running this
+# script is safe.
 # Terraform ignores changes to it on a running server (main.tf); apply a change through SSM.
 set -eu
 
 apt-get update -q
-apt-get install -y -q docker.io docker-compose-v2 chrony unzip curl
+apt-get install -y -q docker.io docker-compose-v2 chrony unzip curl caddy python3
+# Caddy stays off until the API is exposed (README, "Expose the API"); the package starts it.
+systemctl disable --now caddy.service
 
 # Clock: Amazon Time Sync, the link-local NTP server of every EC2 host. The bot refuses quotes
 # more than [risk] max_clock_skew_seconds away from its clock.
@@ -42,3 +45,32 @@ grep -q "$UUID" /etc/fstab || echo "UUID=$UUID /srv/tickr/data ext4 defaults,nof
 mountpoint -q /srv/tickr/data || mount /srv/tickr/data
 chown tickr:tickr /srv/tickr/data
 chmod 700 /srv/tickr/data
+
+# Runtime files (files/ in the repo).
+put() { echo "$2" | base64 -d > "$1"; chmod "$3" "$1"; }
+put /usr/local/bin/tickr-secrets '${files["tickr-secrets"]}' 755
+put /etc/systemd/system/tickr-secrets.service '${files["tickr-secrets.service"]}' 644
+put /usr/local/bin/tickr-heartbeat '${files["tickr-heartbeat"]}' 755
+put /etc/systemd/system/tickr-heartbeat.service '${files["tickr-heartbeat.service"]}' 644
+put /etc/systemd/system/tickr-heartbeat.timer '${files["tickr-heartbeat.timer"]}' 644
+put /etc/caddy/Caddyfile '${files["Caddyfile"]}' 644
+install -d /etc/systemd/system/caddy.service.d
+put /etc/systemd/system/caddy.service.d/tickr.conf '${files["caddy-tickr.conf"]}' 644
+echo "TICKR_DOMAIN=${bot_domain}" > /srv/tickr/etc/domain.env
+chmod 644 /srv/tickr/etc/domain.env
+# Region for the AWS CLI in tickr-secrets and tickr-heartbeat, so it never depends on a lookup.
+echo "AWS_DEFAULT_REGION=${region}" > /srv/tickr/etc/aws.env
+chmod 644 /srv/tickr/etc/aws.env
+
+systemctl daemon-reload
+# The heartbeat needs /srv/tickr/etc/ports.env, written by the first deploy (render-systemd);
+# until then it fails and the heartbeat alarm stays on, as it should. It runs on the host,
+# not in a container, so it reaches the instance role with the metadata hop limit of 1.
+systemctl enable --now tickr-heartbeat.timer
+# On the first boot the secret is still empty (the owner fills it after the apply), so
+# tickr-secrets fails and the bot's jobs refuse to start (Requires=). That must not end this
+# script: it is started last and its failure only noted. After filling the secret the owner
+# runs `sudo systemctl restart tickr-secrets` once (README).
+systemctl enable tickr-secrets.service
+systemctl start tickr-secrets.service || echo "tickr-secrets: secret not filled yet"
+

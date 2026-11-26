@@ -1,0 +1,12 @@
+# HTTPS in front of the API's remote port (docs/api.md): the role `tailscale serve` has on the
+# Mac. Caddy gets and renews the Let's Encrypt certificate through the TLS-ALPN challenge on
+# port 443, the only open port. TICKR_DOMAIN comes from /srv/tickr/etc/domain.env (Terraform
+# variable bot_domain) and TICKR_API_REMOTE_PORT from /srv/tickr/etc/ports.env (rendered from
+# config/bot.toml [api] remote_port). The domain must also be in the API's remote_hosts_file.
+{
+	auto_https disable_redirects
+}
+
+{$TICKR_DOMAIN} {
+	reverse_proxy 127.0.0.1:{$TICKR_API_REMOTE_PORT}
+}

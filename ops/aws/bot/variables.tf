@@ -35,9 +35,21 @@ variable "snapshot_keep_days" {
 }
 
 variable "snapshot_time_utc" {
-  description = "Time of the nightly data-disk snapshot, HH:MM UTC. 07:00 UTC = 02:00 or 03:00 New York, after the post-market session and before the 03:30 preflight."
+  description = "Time of the nightly data-disk snapshot, HH:MM UTC. DLM starts within an hour of it: 06:00 UTC = 01:00 or 02:00 New York, after the post-market session and clear of the 03:30 preflight."
   type        = string
-  default     = "07:00"
+  default     = "06:00"
+}
+
+variable "bot_domain" {
+  description = "Name the apps reach the bot at over HTTPS (Caddy's certificate name). Its A record at Namecheap points at the server_address output; the API's remote_hosts_file must list it."
+  type        = string
+  default     = "bot.tickr.bot"
+}
+
+variable "heartbeat_missing_minutes" {
+  description = "Minutes without a heartbeat point before the tickr-bot-heartbeat alarm mails the owner (one point a minute is sent)."
+  type        = number
+  default     = 5
 }
 
 variable "alert_email" {
@@ -59,4 +71,10 @@ variable "installers" {
     condition     = can(regex("^[0-9a-f]{64}$", var.installers.aws_cli_sha256))
     error_message = "installers: aws_cli_sha256 must be 64 lowercase hex characters."
   }
+}
+
+variable "expose_api" {
+  description = "Open port 443 to the internet so the apps reach the API through Caddy. Stays false until the API refuses repeated bad tokens per address, its error paths leak nothing (PR 794), and the owner has decided which commands may be reached from the internet."
+  type        = bool
+  default     = false
 }
