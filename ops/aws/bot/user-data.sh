@@ -26,7 +26,10 @@ if ! command -v aws >/dev/null; then
 fi
 
 # Service account that runs the containers and owns the data (docs/deploy-server.md).
-id tickr >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin tickr
+# Fixed uid and gid: the release image is built with the same ones (TICKR_UID/TICKR_GID in
+# .github/workflows/server-image.yml), so the container user can read /run/tickr/env (mode 600).
+getent group tickr >/dev/null || groupadd --gid ${service_uid} tickr
+id tickr >/dev/null 2>&1 || useradd --uid ${service_uid} --gid ${service_uid} --create-home --shell /usr/sbin/nologin tickr
 usermod -aG docker tickr
 install -d -m 755 /srv/tickr
 install -d -m 700 -o tickr -g tickr /srv/tickr/etc

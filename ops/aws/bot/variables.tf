@@ -52,6 +52,24 @@ variable "heartbeat_missing_minutes" {
   default     = 5
 }
 
+variable "service_uid" {
+  description = "uid and gid of the server's tickr account. Must equal TICKR_UID and TICKR_GID in .github/workflows/server-image.yml, which builds the image's user with them."
+  type        = number
+  default     = 1500
+}
+
+variable "github_repo" {
+  description = "GitHub repository (owner/name) whose main-branch workflow may push the release image (OIDC trust of role tickr-image-push)."
+  type        = string
+  default     = "tickr-devs/Tickr"
+}
+
+variable "images_kept" {
+  description = "Release images kept in the registry; older ones expire. One per merged change that touches the image."
+  type        = number
+  default     = 60
+}
+
 variable "alert_email" {
   description = "Address the server alarms (machine checks failed, heartbeat missing) are mailed to. Personal data: pass it at apply time (-var or an untracked tfvars file), never commit it. AWS mails a confirmation link once."
   type        = string

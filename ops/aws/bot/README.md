@@ -97,3 +97,19 @@ which commands may be reached from the internet. Then:
 1. `terraform apply -var expose_api=true ...` opens 443.
 2. In an SSM session on the server: `sudo systemctl enable --now caddy`.
 3. Add the `bot_domain` A record at the registrar, pointing at `server_address`.
+
+## Release image
+
+`image.tf` adds the registry `tickr-bot` (immutable tags, scanned on push, the newest
+`images_kept` kept) and the role `tickr-image-push`, which only a workflow run on `main` of
+`github_repo` can assume through GitHub's OIDC token: no AWS key is stored in GitHub. After the
+apply, the owner sets the repository variable once (a variable, not a secret: an ARN is not a
+credential):
+
+```sh
+gh variable set AWS_IMAGE_PUSH_ROLE --repo tickr-devs/Tickr --body "$(terraform output -raw image_push_role)"
+```
+
+From then on `.github/workflows/server-image.yml` builds every change on main that touches the
+image and pushes `tickr-bot:<commit>`. The server pulls with its own role (pull only). The
+image's user has uid and gid `service_uid` (1500), the same as the server's `tickr` account.
