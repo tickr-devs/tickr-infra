@@ -59,9 +59,9 @@ variable "service_uid" {
 }
 
 variable "github_repo" {
-  description = "GitHub repository (owner/name) whose main-branch workflow may push the release image (OIDC trust of role tickr-image-push)."
+  description = "GitHub repository whose main-branch workflow may push the release image (OIDC trust of role tickr-image-push), exactly as the OIDC subject names it. The organisation uses immutable ids in the subject (owner@owner_id/name@repo_id), read from CloudTrail on 2026-11-26; the ids are public, not credentials."
   type        = string
-  default     = "tickr-devs/Tickr"
+  default     = "tickr-devs@357523297/Tickr@1458033118"
 }
 
 variable "images_kept" {
