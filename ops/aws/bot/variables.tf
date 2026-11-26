@@ -96,3 +96,9 @@ variable "expose_api" {
   type        = bool
   default     = false
 }
+
+variable "releases_kept" {
+  description = "Deployed releases (tag release-<commit>) kept in the registry for rollback and rebuilds; the oldest beyond this expire. Counts deploys, not merges."
+  type        = number
+  default     = 20
+}

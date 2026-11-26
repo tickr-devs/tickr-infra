@@ -1,0 +1,72 @@
+#!/bin/bash
+# Pulls the release image of one commit onto the server and marks it as a release.
+#   sudo tickr-image-pull <40-character commit>
+# Reads the repository from /srv/tickr/etc/registry.env and the region from aws.env (both written
+# at first boot). Signs in to the registry with the server role for this run only: the short-lived
+# registry password goes through a pipe and the login is removed on exit. Then it adds the tag
+# release-<commit> to the same image in the registry, which the lifecycle rule never counts against
+# the newest-images limit, so a rollback or a rebuilt server can always pull a deployed release.
+# Never deploys: deploy-server.sh takes the commit next.
+set -euo pipefail
+
+commit=${1:-}
+if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "tickr-image-pull: give the full 40-character commit of main" >&2
+  exit 2
+fi
+for f in /srv/tickr/etc/registry.env /srv/tickr/etc/aws.env; do
+  [ -r "$f" ] || { echo "tickr-image-pull: $f is missing" >&2; exit 1; }
+done
+# Read the one value, never source the file (same as deploy-server.sh).
+TICKR_IMAGE_REPOSITORY=$(sed -n 's/^TICKR_IMAGE_REPOSITORY=//p' /srv/tickr/etc/registry.env)
+AWS_DEFAULT_REGION=$(sed -n 's/^AWS_DEFAULT_REGION=//p' /srv/tickr/etc/aws.env)
+export AWS_DEFAULT_REGION
+[ -n "$TICKR_IMAGE_REPOSITORY" ] || { echo "tickr-image-pull: registry.env names no TICKR_IMAGE_REPOSITORY" >&2; exit 1; }
+registry=${TICKR_IMAGE_REPOSITORY%%/*}
+repository=${TICKR_IMAGE_REPOSITORY#*/}
+
+work=$(mktemp -d)
+trap 'docker logout "$registry" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+aws ecr get-login-password | docker login --username AWS --password-stdin "$registry" >/dev/null
+# Quiet on success: the registry host holds the account number (not a credential). A failed pull's
+# error from Docker may still name it.
+docker pull -q "$TICKR_IMAGE_REPOSITORY:$commit" >/dev/null
+
+release="release-$commit"
+digest_of() {
+  aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$1" \
+    --query 'imageDetails[0].imageDigest' --output text
+}
+if aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$release" >/dev/null 2>&1; then
+  if [ "$(digest_of "$release")" != "$(digest_of "$commit")" ]; then
+    echo "tickr-image-pull: $release and $commit are different images in the registry; refusing" >&2
+    exit 1
+  fi
+  echo "tickr-image-pull: $repository:$release already marked"
+else
+  # The manifest goes to put-image byte for byte (JSON parsed, written to a file, passed as
+  # file://), and the answer's digest must equal the commit image's: otherwise ECR stored a second
+  # image and the commit tag would stay unprotected by the release rule.
+  aws ecr batch-get-image --repository-name "$repository" --image-ids imageTag="$commit" \
+    --output json > "$work/get.json"
+  python3 -I - "$work" <<'PY'
+import json, sys
+work = sys.argv[1]
+image = json.load(open(f"{work}/get.json", encoding="utf-8"))["images"][0]
+with open(f"{work}/manifest.json", "w", encoding="utf-8", newline="") as out:
+    out.write(image["imageManifest"])
+with open(f"{work}/media", "w", encoding="utf-8") as out:
+    out.write(image["imageManifestMediaType"])
+with open(f"{work}/digest", "w", encoding="utf-8") as out:
+    out.write(image["imageId"]["imageDigest"])
+PY
+  aws ecr put-image --repository-name "$repository" --image-tag "$release" \
+    --image-manifest "file://$work/manifest.json" --image-manifest-media-type "$(cat "$work/media")" \
+    --query 'image.imageId.imageDigest' --output text > "$work/put"
+  if [ "$(cat "$work/put")" != "$(cat "$work/digest")" ]; then
+    echo "tickr-image-pull: marking $release created a different image; refusing" >&2
+    exit 1
+  fi
+  echo "tickr-image-pull: marked $repository:$release"
+fi
+echo "tickr-image-pull: $repository:$commit is on this server"

@@ -16,7 +16,8 @@ locals {
   role_tag  = "bot"
   subnet_id = coalesce(var.subnet_id, sort(data.aws_subnets.default.ids)[0])
   runtime_files = ["tickr-secrets", "tickr-secrets.service", "tickr-heartbeat",
-  "tickr-heartbeat.service", "tickr-heartbeat.timer", "Caddyfile", "caddy-tickr.conf"]
+    "tickr-heartbeat.service", "tickr-heartbeat.timer", "Caddyfile", "caddy-tickr.conf",
+  "tickr-image-pull"]
 }
 
 data "aws_vpc" "default" {
@@ -220,12 +221,13 @@ resource "aws_instance" "bot" {
   }
 
   user_data = templatefile("${path.module}/user-data.sh", {
-    data_volume_id  = aws_ebs_volume.data.id
-    aws_cli_version = var.installers.aws_cli_version
-    aws_cli_sha256  = var.installers.aws_cli_sha256
-    bot_domain      = var.bot_domain
-    region          = var.region
-    service_uid     = var.service_uid
+    data_volume_id   = aws_ebs_volume.data.id
+    aws_cli_version  = var.installers.aws_cli_version
+    aws_cli_sha256   = var.installers.aws_cli_sha256
+    bot_domain       = var.bot_domain
+    region           = var.region
+    image_repository = aws_ecr_repository.bot.repository_url
+    service_uid      = var.service_uid
     # Runtime files (files/), passed as base64 so the template never interprets their text.
     files = { for name in local.runtime_files : name => filebase64("${path.module}/files/${name}") }
   })
