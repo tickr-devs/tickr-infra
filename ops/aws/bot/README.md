@@ -113,3 +113,18 @@ gh variable set AWS_IMAGE_PUSH_ROLE --repo tickr-devs/Tickr --body "$(terraform 
 From then on `.github/workflows/server-image.yml` builds every change on main that touches the
 image and pushes `tickr-bot:<commit>`. The server pulls with its own role (pull only). The
 image's user has uid and gid `service_uid` (1500), the same as the server's `tickr` account.
+A test (`tests/ops/test_server_uid.py`) keeps the two values equal. A re-run for a commit
+already pushed skips the push, since tags are immutable. The job log shows the registry host,
+which contains the account number: not a credential.
+
+An account holds one OIDC provider per URL. If one for `token.actions.githubusercontent.com`
+already exists, the first apply stops on it; import it once and apply again:
+
+```sh
+terraform import aws_iam_openid_connect_provider.github \
+  "arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):oidc-provider/token.actions.githubusercontent.com"
+```
+
+The registry keeps the newest `images_kept` images by count. Nothing pulls from it yet; before
+the server does, the deployed release gets a tag that the lifecycle rule never expires, so a
+rollback or a rebuilt server can always pull it.
