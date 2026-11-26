@@ -9,9 +9,11 @@ What it creates (about **17.50 USD a month**):
   IP. Only ports 80 and 443 are open; no SSH, the owner reaches it through SSM. About 12.30 USD
   for the machine, 1.60 for the disk and 3.65 for the public IPv4 address.
 - `tickr-web-<account id>`: private, encrypted, versioned S3 bucket, TLS only: `backups/`
-  (nightly `pg_dump`) and `releases/` (what `ship.sh` uploads), each object and each
-  overwritten version deleted after `keep_days` (30). The machine can write but not delete, so
-  a broken-into machine cannot destroy the last 30 days of dumps. Cents a month.
+  (nightly `pg_dump`) and `releases/` (what `ship.sh` uploads). Each object is deleted after
+  `keep_days` (30); an overwritten or expired one is kept `overwritten_keep_days` (7) more, so
+  a dump is gone for good within 37 days. The machine can write but not delete, so a
+  broken-into machine cannot destroy the dumps, and an overwrite can be undone for 7 days.
+  Cents a month.
 - SES identity for `tickr.bot` with DKIM, so mail comes from `hello@tickr.bot`. 0.10 USD per
   1,000 emails.
 - Role `tickr-web` for the machine: SSM, write `backups/`, read `releases/`, send mail from
@@ -19,6 +21,16 @@ What it creates (about **17.50 USD a month**):
 
 The app's secret key and the database password are generated on the machine at first boot and
 never leave it; they are not in Terraform state, the repository or the bucket.
+
+The database lives on the machine's disk, so the instance has termination protection: a
+`terraform destroy` or a terminate in the console is refused (see "Removing the server").
+
+HTTPS is strict for a year on `tickr.bot` **and every subdomain** (HSTS with
+`includeSubDomains` in `web/deploy/Caddyfile`): any `*.tickr.bot` host must serve HTTPS.
+
+Not watched yet: a failed backup or a site that is down raises no alarm. Check
+`systemctl status tickr-web-backup` and the newest object under `backups/` now and then, until
+the web server joins the bot's alerts.
 
 ## First setup (owner, on the Mac)
 
@@ -55,7 +67,11 @@ never leave it; they are not in Terraform state, the repository or the bucket.
 ## Later releases
 
 `ops/aws/web/ship.sh` (app only) or `ops/aws/web/ship.sh SITE_DIR` (app and site), from a
-clean `web/` at the commit you want. Migrations run when the app starts.
+clean `web/` at a commit that is on `origin/main` (reviewed and merged; ship.sh refuses any
+other). Migrations run when the app starts. Each release removes the previous image.
+
+A release lives in `releases/` for `keep_days` only. The server keeps what it installed, so
+that matters only for a new machine: run `ship.sh SITE_DIR` once after creating one.
 
 ## Restore a backup
 
@@ -64,4 +80,11 @@ aws s3 ls s3://tickr-web-<account id>/backups/tickrweb/
 ```
 The machine may write backups but not read them. To restore one, copy it to `releases/` with
 the admin profile, fetch it on the machine with `aws s3 cp`, and run
-`pg_restore --clean --if-exists -U tickrweb -d tickrweb` inside the `db` container.
+`pg_restore --clean --if-exists -U tickrweb -d tickrweb` inside the `db` container. Then
+delete it from `releases/` with the admin profile: every container on the server can read
+that folder through the instance role.
+
+## Removing the server
+
+Take a backup first. Then set `disable_api_termination = false` in `main.tf`, `terraform
+apply`, and only then `terraform destroy`.

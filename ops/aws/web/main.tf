@@ -1,4 +1,4 @@
-# tickr.bot web server (web/, web/deploy/README.md): one small machine for the public site, the
+# tickr.bot web server (web/, ops/aws/web/README.md): one small machine for the public site, the
 # Django app and its Postgres, apart from the bot (owner decision 2026-11-25). A break-in through
 # the website must not reach the broker keys: this stack shares no role, secret or network with
 # the bot. No inbound SSH: the owner reaches the machine through SSM only.
@@ -76,7 +76,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "web" {
       days = var.keep_days
     }
     noncurrent_version_expiration {
-      noncurrent_days = var.keep_days
+      noncurrent_days = var.overwritten_keep_days
+    }
+    # An upload cut off mid-way (ship.sh or a backup) leaves invisible parts; drop them after a day.
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
     }
   }
   rule {
@@ -208,11 +212,17 @@ resource "aws_instance" "web" {
   iam_instance_profile   = aws_iam_instance_profile.web.name
   vpc_security_group_ids = [aws_security_group.web.id]
   user_data = templatefile("${path.module}/user-data.sh", {
-    domain = var.domain
-    bucket = aws_s3_bucket.web.id
-    region = var.region
+    domain          = var.domain
+    bucket          = aws_s3_bucket.web.id
+    region          = var.region
+    service_uid     = var.service_uid
+    aws_cli_version = var.installers.aws_cli_version
+    aws_cli_sha256  = var.installers.aws_cli_sha256
   })
   user_data_replace_on_change = false
+  # The database lives on this machine's disk: a destroy or a console terminate is refused until
+  # this is set to false on purpose (ops/aws/web/README.md, "Removing the server").
+  disable_api_termination = true
 
   root_block_device {
     volume_type = "gp3"

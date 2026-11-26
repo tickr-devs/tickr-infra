@@ -1,15 +1,29 @@
 #!/bin/bash
-# First boot of the tickr.bot web server (Terraform template: ${domain}, ${bucket}, ${region}).
+# First boot of the tickr.bot web server (Terraform template: ${domain}, ${bucket}, ${region},
+# ${service_uid}, ${aws_cli_version}, ${aws_cli_sha256}).
 # Installs Docker and the AWS CLI, creates the service account and the folders, generates the
 # app's secret key and database password ON the machine (they never leave it), and installs
 # tickr-web-deploy, which ship.sh runs over SSM for each release.
 set -eu
 apt-get update -q
-apt-get install -y -q docker.io docker-compose-v2 rsync
-snap install aws-cli --classic
+apt-get install -y -q docker.io docker-compose-v2 rsync unzip
 systemctl enable --now docker
 
-useradd --system --create-home --home-dir /srv/tickr-web --groups docker tickrweb
+# AWS CLI in /usr/local/bin (on every PATH, systemd units and SSM included): pinned version,
+# refused unless its sha256 matches (variable "installers").
+if ! command -v aws >/dev/null; then
+  cli=$(mktemp -d)
+  curl -sSfL https://awscli.amazonaws.com/awscli-exe-linux-aarch64-${aws_cli_version}.zip -o "$cli/awscli.zip"
+  echo "${aws_cli_sha256}  $cli/awscli.zip" | sha256sum -c -
+  unzip -q "$cli/awscli.zip" -d "$cli"
+  "$cli/aws/install"
+  rm -rf -- "$cli"
+fi
+
+# Service account: owns the secrets (mode 600) and runs compose. Its uid is the image's user
+# (USER in web/Dockerfile, variable service_uid), so the app container can read the two files.
+groupadd --system --gid ${service_uid} tickrweb
+useradd --system --uid ${service_uid} --gid ${service_uid} --create-home --home-dir /srv/tickr-web --shell /usr/sbin/nologin --groups docker tickrweb
 install -d -o tickrweb -g tickrweb -m 755 /srv/tickr-web/site /srv/tickr-web/repo
 install -d -o tickrweb -g tickrweb -m 700 /srv/tickr-web/etc
 
@@ -62,7 +76,8 @@ cd /srv/tickr-web/repo/web/deploy
 sudo -u tickrweb sh -c 'set -a; . /srv/tickr-web/etc/compose.env; set +a
   docker compose build --pull app &&
   docker compose --profile deploy run --rm static &&
-  docker compose up -d --remove-orphans'
+  docker compose up -d --remove-orphans &&
+  docker image prune -f >/dev/null'
 systemctl enable --now tickr-web.service tickr-web-backup.timer tickr-web-prune.timer
 echo "deployed $1 $${2:-}"
 DEPLOY
