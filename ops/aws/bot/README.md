@@ -22,6 +22,8 @@ monthly cost at the same time.
 | `aws_secretsmanager_secret.bot_env` (`tickr-bot/env`) | The bot's credential variables, filled by the owner. A resource policy denies reading the value to every principal but the server role, account admins included (they can still write it, and change the policy on the record). This guards the API call only: anyone allowed to open an SSM session on the server gets a shell there and can read the value through the server role. CloudTrail records every session, so keep SSM session rights to the owner. |
 | `aws_iam_role.bot` | SSM sessions, read of that one secret, one CloudWatch namespace (`Tickr/Bot`). Denied all SSM parameters. |
 | Alarms `tickr-bot-system-check`, `tickr-bot-instance-check` | AWS hardware failure: the server is recovered onto new hardware and the owner is mailed. Operating system hung: mail only (a reboot is the owner's call while a position may be open). |
+| Alarm `tickr-bot-cpu-surplus-charged` | Any hour in which CPU above the t3 baseline was billed: the signal to resize on measured load. |
+| Metadata: hop limit 1 and `tickr-imds-block.service` | Only root's host units (secrets, heartbeat, image pull) reach the server role; the bot's containers (host networking, uid `service_uid`) are refused the metadata address. |
 
 The training stack stays separate: the research user's rights cover only machines tagged
 `tickr:role=training`, and the training machine role is denied every secret except Massive's.
@@ -63,6 +65,21 @@ Terraform ignores a new Ubuntu image and changes to `user-data.sh` on the existi
 apply never stops or replaces it. A change to the first-boot script is run once through SSM
 while the bot is flat, or the server is rebuilt on a weekend while flat: turn off termination
 protection, `terraform apply -replace=aws_instance.bot`; the data disk and address stay.
+
+### Metadata block on the server already running (once, while flat)
+
+The hop limit changes in place with `terraform apply`. The uid rule (`files/tickr-imds-block.service`)
+arrived after the first boot, so install it once through SSM:
+```sh
+cd ~/Development/Tickr/ops/aws/bot && export AWS_PROFILE=tickr
+IID=$(terraform output -raw instance_id)
+B=$(base64 < files/tickr-imds-block.service | tr -d '\n')
+ID=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \
+  --parameters "commands=[\"echo $B | base64 -d > /etc/systemd/system/tickr-imds-block.service\",\"echo TICKR_SERVICE_UID=1500 > /srv/tickr/etc/uid.env\",\"systemctl daemon-reload\",\"systemctl enable --now tickr-imds-block.service\",\"iptables -S OUTPUT | grep 169.254.169.254\",\"sudo -u tickr curl -s -m 3 http://169.254.169.254/ || echo blocked-for-tickr\"]" \
+  --query Command.CommandId --output text)
+sleep 10; aws ssm get-command-invocation --command-id "$ID" --instance-id "$IID" --query '[Status,StandardOutputContent]' --output text
+```
+The output must show the REJECT rule and `blocked-for-tickr`. `1500` is `service_uid`.
 
 ## Runtime on the server (first boot)
 

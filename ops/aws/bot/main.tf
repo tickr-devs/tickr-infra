@@ -17,7 +17,7 @@ locals {
   subnet_id = coalesce(var.subnet_id, sort(data.aws_subnets.default.ids)[0])
   runtime_files = ["tickr-secrets", "tickr-secrets.service", "tickr-heartbeat",
     "tickr-heartbeat.service", "tickr-heartbeat.timer", "Caddyfile", "caddy-tickr.conf",
-  "tickr-image-pull"]
+  "tickr-image-pull", "tickr-imds-block.service"]
 }
 
 data "aws_vpc" "default" {
@@ -215,9 +215,14 @@ resource "aws_instance" "bot" {
     cpu_credits = "unlimited"
   }
 
+  # Hop limit 1: a container on a Docker bridge network cannot reach the metadata service. The
+  # Ubuntu image's default is 2. The bot's own containers use host networking, which a hop limit
+  # cannot stop: files/tickr-imds-block.service refuses the address to their user instead.
+  # Changed in place on a running server (no stop).
   metadata_options {
-    http_tokens   = "required"
-    http_endpoint = "enabled"
+    http_tokens                 = "required"
+    http_endpoint               = "enabled"
+    http_put_response_hop_limit = 1
   }
 
   user_data = templatefile("${path.module}/user-data.sh", {
@@ -343,6 +348,25 @@ resource "aws_cloudwatch_metric_alarm" "instance_check" {
   evaluation_periods  = 3
   threshold           = 1
   comparison_operator = "GreaterThanOrEqualToThreshold"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  ok_actions          = [aws_sns_topic.alarms.arn]
+}
+
+# Extra CPU billed: with cpu_credits "unlimited" a t3 running above its baseline for long is
+# charged for the surplus credits. Any charge in an hour mails the owner, so the server's size
+# is revisited on measured load instead of being found on the bill.
+resource "aws_cloudwatch_metric_alarm" "cpu_surplus_charged" {
+  alarm_name          = "tickr-bot-cpu-surplus-charged"
+  alarm_description   = "Bot server: CPU above the t3 baseline was billed this hour (unlimited credits)"
+  namespace           = "AWS/EC2"
+  metric_name         = "CPUSurplusCreditsCharged"
+  dimensions          = { InstanceId = aws_instance.bot.id }
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.alarms.arn]
   ok_actions          = [aws_sns_topic.alarms.arn]
 }
