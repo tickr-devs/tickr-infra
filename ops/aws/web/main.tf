@@ -155,10 +155,24 @@ data "aws_iam_policy_document" "web" {
     actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.web.arn}/releases/*"]
   }
+  # SES checks every identity a message touches: the sender's, and while the account is in the
+  # SES sandbox also each (verified) recipient's. So the grant covers all identities of the
+  # account, and the condition keeps it to mail from the domain.
   statement {
     sid       = "SendMailFromTheDomain"
     actions   = ["ses:SendEmail", "ses:SendRawEmail"]
-    resources = [aws_sesv2_email_identity.domain.arn]
+    resources = ["arn:${local.partition}:ses:${var.region}:${local.account}:identity/*"]
+    condition {
+      test     = "StringLike"
+      variable = "ses:FromAddress"
+      values   = ["*@${var.domain}"]
+    }
+  }
+  # django-ses reads the account's send rate before each message to stay under it (read only).
+  statement {
+    sid       = "ReadSendRate"
+    actions   = ["ses:GetAccount"]
+    resources = ["*"]
   }
 }
 
