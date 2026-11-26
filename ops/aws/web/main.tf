@@ -168,6 +168,12 @@ data "aws_iam_policy_document" "web" {
       values   = ["*@${var.domain}"]
     }
   }
+  # django-ses reads the account's send rate before each message to stay under it (read only).
+  statement {
+    sid       = "ReadSendRate"
+    actions   = ["ses:GetAccount"]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "web" {
