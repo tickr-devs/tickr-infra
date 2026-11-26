@@ -1,5 +1,5 @@
 name: terraform
-# Checks the infrastructure code in ops/aws/ (the training stack, the bot server and the web server): formatting
+# Checks the infrastructure code in ops/aws/ (the training stack, the bot server, the web server and the account settings): formatting
 # and `terraform validate` with providers downloaded but no AWS credentials, so nothing is read
 # from or changed in the account. Applying stays the owner's step on his Mac.
 on:
@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stack: [ops/aws/training, ops/aws/bot, ops/aws/web]
+        stack: [ops/aws/training, ops/aws/bot, ops/aws/web, ops/aws/account]
     steps:
       - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
