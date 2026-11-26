@@ -59,9 +59,9 @@ variable "service_uid" {
 }
 
 variable "github_repo" {
-  description = "GitHub repository (owner/name) whose main-branch workflow may push the release image (OIDC trust of role tickr-image-push)."
+  description = "GitHub repository whose main-branch workflow may push the release image (OIDC trust of role tickr-image-push), exactly as the OIDC subject names it. The organisation uses immutable ids in the subject (owner@owner_id/name@repo_id), read from CloudTrail on 2026-11-26; the ids are public, not credentials."
   type        = string
-  default     = "tickr-devs/Tickr"
+  default     = "tickr-devs@357523297/Tickr@1458033118"
 }
 
 variable "images_kept" {
@@ -95,4 +95,10 @@ variable "expose_api" {
   description = "Open port 443 to the internet so the apps reach the API through Caddy. Stays false until the API refuses repeated bad tokens per address, its error paths leak nothing (PR 794), and the owner has decided which commands may be reached from the internet."
   type        = bool
   default     = false
+}
+
+variable "releases_kept" {
+  description = "Deployed releases (tag release-<commit>) kept in the registry for rollback and rebuilds; the oldest beyond this expire. Counts deploys, not merges."
+  type        = number
+  default     = 20
 }
