@@ -174,6 +174,17 @@ data "aws_iam_policy_document" "web" {
     actions   = ["ses:GetAccount"]
     resources = ["*"]
   }
+  # backup.sh reports each uploaded dump (alarm tickr-web-backup-missing); one namespace only.
+  statement {
+    sid       = "BackupMetric"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["Tickr/Web"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "web" {
@@ -263,4 +274,98 @@ resource "aws_instance" "web" {
 resource "aws_eip" "web" {
   instance = aws_instance.web.id
   domain   = "vpc"
+}
+
+# --- Alarms: mail the owner when the machine, the site or the nightly backup fails -------------
+
+resource "aws_sns_topic" "alarms" {
+  name = "tickr-web-alarms"
+}
+
+resource "aws_sns_topic_subscription" "owner" {
+  topic_arn = aws_sns_topic.alarms.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
+# AWS host failure: move the machine to healthy hardware (same id, address and disk), and mail.
+resource "aws_cloudwatch_metric_alarm" "system_check" {
+  alarm_name          = "tickr-web-system-check"
+  alarm_description   = "Web server: AWS hardware check failed; the server is recovered onto new hardware"
+  namespace           = "AWS/EC2"
+  metric_name         = "StatusCheckFailed_System"
+  dimensions          = { InstanceId = aws_instance.web.id }
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 2
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  alarm_actions       = ["arn:${local.partition}:automate:${var.region}:ec2:recover", aws_sns_topic.alarms.arn]
+  ok_actions          = [aws_sns_topic.alarms.arn]
+}
+
+# Operating system hung or out of memory: mail only (a reboot is the owner's call).
+resource "aws_cloudwatch_metric_alarm" "instance_check" {
+  alarm_name          = "tickr-web-instance-check"
+  alarm_description   = "Web server: the operating system does not answer AWS's check"
+  namespace           = "AWS/EC2"
+  metric_name         = "StatusCheckFailed_Instance"
+  dimensions          = { InstanceId = aws_instance.web.id }
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 3
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  ok_actions          = [aws_sns_topic.alarms.arn]
+}
+
+# The public site as a visitor sees it: Route 53 health checkers in several regions fetch
+# https://<domain>/ (a status below 400 within the TLS handshake and 4 seconds counts as up).
+# Catches what the machine checks cannot: Caddy or the containers down, an expired certificate,
+# DNS pointing elsewhere.
+resource "aws_route53_health_check" "site" {
+  fqdn              = var.domain
+  port              = 443
+  type              = "HTTPS"
+  resource_path     = "/"
+  request_interval  = var.site_check_interval_seconds
+  failure_threshold = var.site_check_failures
+  tags = {
+    Name = "tickr-web-site"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "site" {
+  alarm_name          = "tickr-web-site-down"
+  alarm_description   = "tickr.bot does not answer over HTTPS"
+  namespace           = "AWS/Route53"
+  metric_name         = "HealthCheckStatus"
+  dimensions          = { HealthCheckId = aws_route53_health_check.site.id }
+  statistic           = "Minimum"
+  period              = 60
+  evaluation_periods  = var.site_down_minutes
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "breaching"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  ok_actions          = [aws_sns_topic.alarms.arn]
+}
+
+# backup.sh sends one point after each dump it uploaded. No point in backup_missing_hours = the
+# nightly backup did not run or failed. Missing data counts as breaching, so a server that never
+# backed up alarms too (expect this alarm until the first night after the apply).
+resource "aws_cloudwatch_metric_alarm" "backup" {
+  alarm_name          = "tickr-web-backup-missing"
+  alarm_description   = "Web server: no database dump uploaded to S3 for backup_missing_hours"
+  namespace           = "Tickr/Web"
+  metric_name         = "BackupUploaded"
+  statistic           = "SampleCount"
+  period              = 3600
+  evaluation_periods  = var.backup_missing_hours
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "breaching"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  ok_actions          = [aws_sns_topic.alarms.arn]
 }

@@ -55,3 +55,32 @@ variable "installers" {
     error_message = "installers: aws_cli_sha256 must be 64 lowercase hex characters."
   }
 }
+
+variable "alert_email" {
+  description = "Address the web server alarms (machine checks, site down, backup missing) are mailed to. Personal data: pass it at apply time (-var or an untracked tfvars file), never commit it. AWS mails a confirmation link once."
+  type        = string
+}
+
+variable "site_check_interval_seconds" {
+  description = "Seconds between Route 53 health checks of https://<domain>/ from each checker region: 30 (standard, 0.50 USD a month for an AWS endpoint) or 10 (fast, costs more)."
+  type        = number
+  default     = 30
+}
+
+variable "site_check_failures" {
+  description = "Failed checks in a row before one Route 53 checker counts the site as down (Route 53 failure_threshold)."
+  type        = number
+  default     = 3
+}
+
+variable "site_down_minutes" {
+  description = "Minutes the health check must report the site down before the tickr-web-site-down alarm mails the owner."
+  type        = number
+  default     = 5
+}
+
+variable "backup_missing_hours" {
+  description = "Hours without an uploaded database dump before the tickr-web-backup-missing alarm mails the owner. The dump runs nightly (web/deploy/systemd/tickr-web-backup.timer): 26 = one missed night plus two hours of slack."
+  type        = number
+  default     = 26
+}

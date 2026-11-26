@@ -28,9 +28,14 @@ The database lives on the machine's disk, so the instance has termination protec
 HTTPS is strict for a year on `tickr.bot` **and every subdomain** (HSTS with
 `includeSubDomains` in `web/deploy/Caddyfile`): any `*.tickr.bot` host must serve HTTPS.
 
-Not watched yet: a failed backup or a site that is down raises no alarm. Check
-`systemctl status tickr-web-backup` and the newest object under `backups/` now and then, until
-the web server joins the bot's alerts.
+- Alarms mailed to `alert_email` (topic `tickr-web-alarms`; confirm AWS's link once):
+  `tickr-web-system-check` (AWS hardware failed; the machine is also recovered onto new
+  hardware), `tickr-web-instance-check` (the system does not answer), `tickr-web-site-down`
+  (a Route 53 health check cannot fetch `https://tickr.bot/` for `site_down_minutes`) and
+  `tickr-web-backup-missing` (no dump uploaded for `backup_missing_hours`; `backup.sh` sends one
+  point after each upload). About 1.20 USD a month: 0.50 for the health check, 0.40 for four
+  alarms, 0.30 for the backup metric. The backup alarm stays on until the first night after the
+  apply.
 
 ## First setup (owner, on the Mac)
 
@@ -38,7 +43,7 @@ the web server joins the bot's alerts.
    ```sh
    cd ~/Development/Tickr/ops/aws/web
    terraform init
-   terraform apply
+   terraform apply -var alert_email='you@example.com'
    terraform output dns_records_for_namecheap
    ```
 2. Namecheap > Domain List > tickr.bot > Advanced DNS: delete the old A/CNAME records for `@`
@@ -63,6 +68,18 @@ the web server joins the bot's alerts.
 6. Old early-access list: download `tickr-signups/emails.csv` from Namecheap File Manager,
    copy it into the app container, and run `manage.py import_waitlist emails.csv` the same
    way. Each address gets a confirmation email.
+
+## Turn on the alarms (server already running)
+
+The alarms came after the first setup. Apply once, then ship, so the machine may send the backup
+point before `backup.sh` starts sending it:
+```sh
+cd ~/Development/Tickr && git switch main && git pull
+cd ops/aws/web && terraform plan -var alert_email='you@example.com'   # adds only the alarms, topic, health check and one role statement
+terraform apply -var alert_email='you@example.com'
+cd ~/Development/Tickr && ops/aws/web/ship.sh
+```
+Confirm the link AWS mails. The plan must not replace `aws_instance.web`.
 
 ## Later releases
 
