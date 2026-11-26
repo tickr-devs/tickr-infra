@@ -322,8 +322,9 @@ resource "aws_cloudwatch_metric_alarm" "instance_check" {
 
 # The public site as a visitor sees it: Route 53 health checkers in several regions fetch
 # https://<domain>/ (a status below 400 within the TLS handshake and 4 seconds counts as up).
-# Catches what the machine checks cannot: Caddy or the containers down, an expired certificate,
-# DNS pointing elsewhere.
+# Catches what the machine checks cannot: Caddy or the containers down, DNS pointing elsewhere.
+# It does NOT validate the certificate (Route 53 completes the handshake with any certificate), so
+# an expired one still counts as up. Its metric exists only in us-east-1 (variable region).
 resource "aws_route53_health_check" "site" {
   fqdn              = var.domain
   port              = 443

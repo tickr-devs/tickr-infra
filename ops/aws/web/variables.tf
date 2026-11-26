@@ -1,7 +1,11 @@
 variable "region" {
-  description = "AWS region of the web server, its bucket and SES (us-east-1, like the rest of the account)."
+  description = "AWS region of the web server, its bucket and SES (us-east-1, like the rest of the account). Must stay us-east-1: Route 53 health-check metrics exist only there, so the tickr-web-site-down alarm elsewhere would see no data and stay in alarm."
   type        = string
   default     = "us-east-1"
+  validation {
+    condition     = var.region == "us-east-1"
+    error_message = "region: the site-down alarm reads Route 53 metrics, which exist only in us-east-1."
+  }
 }
 
 variable "domain" {

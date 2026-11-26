@@ -21,9 +21,10 @@ What it creates:
 cd ~/Development/Tickr && git switch main && git pull
 cd ops/aws/account && export AWS_PROFILE=tickr
 terraform init
-terraform plan -var alert_email='you@example.com'
-terraform apply -var alert_email='you@example.com'
+aws cloudtrail describe-trails --include-shadow-trails   # must list nothing, or the trail is a billed second copy
+terraform plan
+terraform apply
 ```
-With GuardDuty, add `-var guardduty_enabled=true` to both commands and confirm the link AWS mails.
+With GuardDuty, add `-var guardduty_enabled=true -var alert_email='you@example.com'` to both commands and confirm the link AWS mails.
 
 Read the log: CloudTrail > Event history in the console (90 days), or the files in the bucket.
