@@ -91,8 +91,9 @@ deploy, so the ports have one source. Until then both fail and the heartbeat ala
 
 Off by default: with port 443 open, a device token is the only barrier in front of operator
 commands, where on the Mac the tailnet stands in front of it too. Turn it on only when the API
-refuses repeated bad tokens per address, its error paths leak nothing, and the owner has decided
-which commands may be reached from the internet. Then:
+refuses repeated bad tokens per address (it does: `[api] remote_auth_*`, docs/api.md "Failed
+authentication limit", keyed on the last `X-Forwarded-For` entry Caddy sets), its error paths
+leak nothing, and the owner has decided which commands may be reached from the internet. Then:
 
 1. `terraform apply -var expose_api=true ...` opens 443.
 2. In an SSM session on the server: `sudo systemctl enable --now caddy`.
@@ -142,7 +143,7 @@ In an SSM session, with the full commit of main whose image CI pushed:
 
 ```sh
 sudo tickr-image-pull <commit>     # pull it and mark it release-<commit> in the registry
-sudo /srv/tickr/repo/ops/systemd/deploy-server.sh <commit>       # refuses unless flat
+sudo /srv/tickr/bin/deploy-server.sh <commit>       # refuses unless flat (docs/deploy-server.md)
 ```
 
 `tickr-image-pull` reads the repository from `/srv/tickr/etc/registry.env` (written at first
