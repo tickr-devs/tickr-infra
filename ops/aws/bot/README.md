@@ -143,7 +143,7 @@ In an SSM session, with the full commit of main whose image CI pushed:
 
 ```sh
 sudo tickr-image-pull <commit>     # pull it and mark it release-<commit> in the registry
-sudo /srv/tickr/repo/ops/systemd/deploy-server.sh <commit>       # refuses unless flat
+sudo /srv/tickr/bin/deploy-server.sh <commit>       # refuses unless flat (docs/deploy-server.md)
 ```
 
 `tickr-image-pull` reads the repository from `/srv/tickr/etc/registry.env` (written at first
