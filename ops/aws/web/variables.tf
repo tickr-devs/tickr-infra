@@ -15,9 +15,15 @@ variable "domain" {
 }
 
 variable "instance_type" {
-  description = "Web server size: t4g.small = 2 Graviton vCPU, 2 GB, about 12.30 USD a month on demand."
+  description = "Web server size: t4g.micro = 2 Graviton vCPU, 1 GB, about 6.13 USD a month on demand. Sized on measured use (2026-11-26: CPU 2 % average, 23 % peak during a build; 639 MB in use including the system, containers about 125 MB); owner yes 2026-11-26. Grow to t4g.small (2 GB, 12.26 USD) if memory runs short. A change stops and starts the machine on apply (1-2 minutes of downtime; the database stays on its disk)."
   type        = string
-  default     = "t4g.small"
+  default     = "t4g.micro"
+}
+
+variable "swap_gb" {
+  description = "Swap file on the web server in GB (/swapfile, user-data.sh): headroom for `docker compose build` on the 1 GB machine. Takes this much of the root disk."
+  type        = number
+  default     = 1
 }
 
 variable "disk_gb" {

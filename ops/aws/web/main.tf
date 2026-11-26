@@ -241,6 +241,7 @@ resource "aws_instance" "web" {
     bucket          = aws_s3_bucket.web.id
     region          = var.region
     service_uid     = var.service_uid
+    swap_gb         = var.swap_gb
     aws_cli_version = var.installers.aws_cli_version
     aws_cli_sha256  = var.installers.aws_cli_sha256
   })
