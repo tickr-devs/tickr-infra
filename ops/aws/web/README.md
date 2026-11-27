@@ -83,9 +83,15 @@ Confirm the link AWS mails. The plan must not replace `aws_instance.web`.
 
 ## Later releases
 
-tickr-web's `web/deploy/ship.sh` (app only) or `web/deploy/ship.sh SITE_DIR` (app and site), from a
-clean `web/` at a commit that is on `origin/main` (reviewed and merged; ship.sh refuses any
-other). Migrations run when the app starts. Each release removes the previous image.
+`web/deploy/ship.sh` (app only) or `web/deploy/ship.sh SITE_DIR` (app and site), run in a
+tickr-web clone next to this one (or with `TICKR_INFRA_DIR`), from a clean `web/` at a commit
+that is on `origin/main` (reviewed and merged; ship.sh refuses any other). Migrations run when
+the app starts. Each release removes the previous image, and restarts Caddy when the release
+changed the Caddyfile.
+
+Terraform ignores changes to `user-data.sh` on the running server. After a change to the
+`tickr-web-deploy` script in it, install that script once with
+`ops/aws/web/update-deploy-script.sh` (it replaces only that file).
 
 A release lives in `releases/` for `keep_days` only. The server keeps what it installed, so
 that matters only for a new machine: run `ship.sh SITE_DIR` once after creating one.

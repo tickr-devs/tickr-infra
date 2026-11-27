@@ -68,15 +68,22 @@ if [ -n "$${2:-}" ]; then
   tar -xzf "$work/site.tgz" -C "$work/site"
   rsync -a --delete "$work/site/" /srv/tickr-web/site/
 fi
+# Caddy reads its file through a bind mount of one file: a release that replaces the file leaves
+# the running container on the old one, so Caddy is restarted when the Caddyfile changed.
+caddyfile=/srv/tickr-web/repo/web/deploy/Caddyfile
+old_caddy=$(sha256sum "$caddyfile" 2>/dev/null || true)
 rsync -a --delete "$work/web/" /srv/tickr-web/repo/web/
+restart_caddy=
+if [ "$old_caddy" != "$(sha256sum "$caddyfile")" ]; then restart_caddy=1; fi
 chown -R tickrweb:tickrweb /srv/tickr-web/repo /srv/tickr-web/site
 cp /srv/tickr-web/repo/web/deploy/systemd/* /etc/systemd/system/
 systemctl daemon-reload
 cd /srv/tickr-web/repo/web/deploy
-sudo -u tickrweb sh -c 'set -a; . /srv/tickr-web/etc/compose.env; set +a
+sudo -u tickrweb env restart_caddy="$restart_caddy" sh -c 'set -a; . /srv/tickr-web/etc/compose.env; set +a
   docker compose build --pull app &&
   docker compose --profile deploy run --rm static &&
   docker compose up -d --remove-orphans &&
+  if [ -n "$restart_caddy" ]; then docker compose restart caddy; fi &&
   docker image prune -f >/dev/null'
 systemctl enable --now tickr-web.service tickr-web-backup.timer tickr-web-prune.timer
 echo "deployed $1 $${2:-}"
