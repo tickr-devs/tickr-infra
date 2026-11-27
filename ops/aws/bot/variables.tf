@@ -28,12 +28,6 @@ variable "data_disk_gb" {
   default     = 30
 }
 
-variable "data_disk_low_percent" {
-  description = "Alarm tickr-bot-data-disk-low mails the owner when the data disk's free space falls below this percent (files/tickr-heartbeat sends it each minute). 25 percent of 30 GB is 7.5 GB, about all the data gathered up to 2026-11-27: time to grow the disk online."
-  type        = number
-  default     = 25
-}
-
 variable "snapshot_keep_days" {
   description = "Nightly snapshots of the data disk kept, in days (one snapshot a night)."
   type        = number

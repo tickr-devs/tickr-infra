@@ -22,7 +22,6 @@ monthly cost at the same time.
 | `aws_secretsmanager_secret.bot_env` (`tickr-bot/env`) | The bot's credential variables, filled by the owner. A resource policy denies reading the value to every principal but the server role, account admins included (they can still write it, and change the policy on the record). This guards the API call only: anyone allowed to open an SSM session on the server gets a shell there and can read the value through the server role. CloudTrail records every session, so keep SSM session rights to the owner. |
 | `aws_iam_role.bot` | SSM sessions, read of that one secret, one CloudWatch namespace (`Tickr/Bot`). Denied all SSM parameters. |
 | Alarms `tickr-bot-system-check`, `tickr-bot-instance-check` | AWS hardware failure: the server is recovered onto new hardware and the owner is mailed. Operating system hung: mail only (a reboot is the owner's call while a position may be open). |
-| Alarm `tickr-bot-data-disk-low` | The data disk's free space under `data_disk_low_percent` (the heartbeat sends it each minute): grow the disk. About 0.40 USD a month (one custom metric and one alarm). |
 | Alarm `tickr-bot-cpu-surplus-charged` | Any hour in which CPU above the t3 baseline was billed: the signal to resize on measured load. About 0.10 USD a month (one standard alarm; owner yes 2026-11-27). |
 | Metadata: hop limit 1 and `tickr-imds-block.service` | Only root's host units (secrets, heartbeat, image pull) reach the server role; the bot's containers (host networking, uid `service_uid`) are refused the metadata address. |
 
@@ -98,33 +97,46 @@ sleep 10; aws ssm get-command-invocation --command-id "$ID" --instance-id "$IID"
 Raise `data_disk_gb`, apply (the disk grows in place, the server keeps running), then in an SSM
 session `sudo resize2fs "$(findmnt -n -o SOURCE /srv/tickr/data)"`.
 
-### Smaller data disk (once, 2026-11-27, while flat)
+### Smaller data disk (once, 2026-11-27)
 
 EBS cannot shrink a disk. `move-data-disk.sh` snapshots the old disk, copies the folder to a new
-one with the bot stopped (a few minutes), and puts the new disk where the old one was; it never
-deletes anything. Then Terraform is pointed at the new disk; `prevent_destroy` stays on.
-Run it before the first apply with `data_disk_gb` = 30: until then the plan would try to shrink
-the old disk, which AWS refuses.
+one with Docker stopped (a few minutes), compares checksums of every file, and puts the new disk
+where the old one was; it never deletes anything. Then Terraform is pointed at the new disk;
+`prevent_destroy` stays on.
+
+When: only the API may run (the script refuses otherwise), so after 20:00 ET or at the weekend;
+not at 19:00 ET on a weekday (`tickr-nightly-fetch`) and not at `snapshot_time_utc`. The API is
+down during the copy, so `tickr-bot-heartbeat` mails "down" and then "OK".
+
+Run it before the first apply with `data_disk_gb` = 30: until then a plan would try to shrink the
+old disk, which AWS refuses. No `apply` between `state rm` and the second `import`: in that gap
+Terraform does not know the disk and would plan a new empty one at `/dev/sdf`.
 ```sh
 cd ~/Development/tickr-infra/ops/aws/bot && export AWS_PROFILE=tickr
 sh move-data-disk.sh 30
+terraform state pull > ~/state-before-move.json
 terraform state rm aws_volume_attachment.data aws_ebs_volume.data
 terraform import aws_ebs_volume.data <new disk id, printed by the script>
 terraform import aws_volume_attachment.data /dev/sdf:<new disk id>:<instance id>
 terraform plan -var alert_email=...
 ```
-The plan must not create, destroy or replace anything (a tag or `stop_instance_before_detaching`
-on the attachment may update in place). The old disk stays detached and the snapshot kept: delete
-the old disk with `aws ec2 delete-volume` after the bot has run on the new one for a few days.
+The plan must show exactly: `aws_instance.bot` updated in place (`instance_type`, when t3.small
+is applied with it; the apply stops and starts the server), `aws_volume_attachment.data` updated
+in place (`stop_instance_before_detaching`), `aws_ebs_volume.data` unchanged, nothing created,
+destroyed or replaced. Stop on anything else (`~/state-before-move.json` is the state before).
+Delete the old disk (`aws ec2 delete-volume`) after the bot has run on the new one for a few days;
+keep the snapshot until then too.
 
-The heartbeat script that sends the free space arrived after the first boot; install it once:
-```sh
-IID=$(terraform output -raw instance_id)
-B=$(base64 < files/tickr-heartbeat | tr -d '\n')
-ID=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \
-  --parameters "commands=[\"echo $B | base64 -d > /usr/local/bin/tickr-heartbeat\",\"chmod 755 /usr/local/bin/tickr-heartbeat\"]" \
-  --query Command.CommandId --output text)
-```
+#### If the move stops
+
+The script prints what it left behind and the disks' attachments. Do not run it again first:
+each run makes a new snapshot and a new disk.
+- It stopped before "copied" (the server step restores itself): the bot is on the old disk. Delete
+  the new disk once it is detached (`aws ec2 detach-volume --volume-id NEW`, then
+  `aws ec2 delete-volume --volume-id NEW`) and the snapshot (`aws ec2 delete-snapshot
+  --snapshot-id SNAP`), then find the cause before a new run.
+- It stopped after "copied": `/etc/fstab` names the new disk. Finish forward or go back as the
+  script's header says; delete nothing until the bot runs again.
 
 ## Runtime on the server (first boot)
 

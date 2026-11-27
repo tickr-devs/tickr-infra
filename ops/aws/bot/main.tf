@@ -375,24 +375,6 @@ resource "aws_cloudwatch_metric_alarm" "cpu_surplus_charged" {
   ok_actions          = [aws_sns_topic.alarms.arn]
 }
 
-# Data disk filling up: the bot needs room for its database and archives. The heartbeat sends the
-# free percent each minute; the lowest in an hour under data_disk_low_percent mails the owner, who
-# grows the disk online. No point (server down) is the heartbeat alarm's job.
-resource "aws_cloudwatch_metric_alarm" "data_disk_low" {
-  alarm_name          = "tickr-bot-data-disk-low"
-  alarm_description   = "Bot server: data disk free space below ${var.data_disk_low_percent} percent; grow it (README)"
-  namespace           = "Tickr/Bot"
-  metric_name         = "DataDiskFreePercent"
-  statistic           = "Minimum"
-  period              = 3600
-  evaluation_periods  = 1
-  threshold           = var.data_disk_low_percent
-  comparison_operator = "LessThanThreshold"
-  treat_missing_data  = "notBreaching"
-  alarm_actions       = [aws_sns_topic.alarms.arn]
-  ok_actions          = [aws_sns_topic.alarms.arn]
-}
-
 # --- Off-server heartbeat -------------------------------------------------------------------
 
 # The server sends one point a minute while it and its local API answer (files/tickr-heartbeat).
