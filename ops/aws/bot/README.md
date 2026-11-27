@@ -71,7 +71,7 @@ protection, `terraform apply -replace=aws_instance.bot`; the data disk and addre
 The hop limit changes in place with `terraform apply`. The uid rule (`files/tickr-imds-block.service`)
 arrived after the first boot, so install it once through SSM:
 ```sh
-cd ~/Development/Tickr/ops/aws/bot && export AWS_PROFILE=tickr
+cd ~/Development/tickr-infra/ops/aws/bot && export AWS_PROFILE=tickr
 IID=$(terraform output -raw instance_id)
 B=$(base64 < files/tickr-imds-block.service | tr -d '\n')
 ID=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \

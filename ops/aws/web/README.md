@@ -90,7 +90,7 @@ The first server was a t4g.small. Add the swap file first (user-data.sh runs onl
 boot), then apply the new size; the apply stops and starts the machine (1-2 minutes of
 downtime, the database stays on its disk):
 ```sh
-cd ~/Development/Tickr && git switch main && git pull
+cd ~/Development/tickr-infra && git switch main && git pull
 cd ops/aws/web && export AWS_PROFILE=tickr
 IID=$(terraform output -raw instance_id)
 ID=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \
