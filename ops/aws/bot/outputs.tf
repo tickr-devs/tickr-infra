@@ -22,3 +22,8 @@ output "image_push_role" {
   description = "Role the image workflow assumes; set it as the repository variable AWS_IMAGE_PUSH_ROLE (README)."
   value       = aws_iam_role.image_push.arn
 }
+
+output "service_uid" {
+  description = "uid of the server's tickr account (variable service_uid): the README's metadata-block step writes it into /srv/tickr/etc/uid.env."
+  value       = var.service_uid
+}
