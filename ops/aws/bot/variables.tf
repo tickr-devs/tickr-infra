@@ -23,9 +23,15 @@ variable "root_disk_gb" {
 }
 
 variable "data_disk_gb" {
-  description = "Data disk in GB, mounted at /srv/tickr/data: the bot's data folder ([run] data_dir: SQLite database, archives, Webull token). Separate from the root disk so the server can be rebuilt without touching it."
+  description = "Data disk in GB, mounted at /srv/tickr/data: the bot's data folder ([run] data_dir: SQLite database, archives, Webull token). Separate from the root disk so the server can be rebuilt without touching it. 30 since 2026-11-27 (6.9 GB used then, of 100): growing it is online (raise this, apply, then resize2fs in an SSM session); EBS cannot shrink a disk, so a smaller one is a new disk and a copy (README)."
   type        = number
-  default     = 100
+  default     = 30
+}
+
+variable "data_disk_low_percent" {
+  description = "Alarm tickr-bot-data-disk-low mails the owner when the data disk's free space falls below this percent (files/tickr-heartbeat sends it each minute). 25 percent of 30 GB is 7.5 GB, about all the data gathered up to 2026-11-27: time to grow the disk online."
+  type        = number
+  default     = 25
 }
 
 variable "snapshot_keep_days" {

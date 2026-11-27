@@ -15,13 +15,14 @@ monthly cost at the same time.
 | Resource | Why |
 |---|---|
 | `aws_instance.bot` (`var.instance_type`, Ubuntu 24.04, IMDSv2, termination protection) | The bot, the API and the live feed. The smallest type that may fit (t3.small since 2026-11-27, watched by the CPU and heartbeat alarms); resizing is a change of `instance_type` alone, applied while flat (the apply stops and starts the server; disks and address stay). CPU credits `unlimited`: never throttled; CPU above t3's baseline is billed extra (at most about $0.05 per vCPU-hour). |
-| `aws_ebs_volume.data` (gp3, encrypted, `prevent_destroy`) at `/srv/tickr/data` | The data folder: SQLite, archives, Webull token. Separate from the root disk so the server can be rebuilt without it. |
+| `aws_ebs_volume.data` (gp3, encrypted, `prevent_destroy`) at `/srv/tickr/data` | The data folder: SQLite, archives, Webull token. Separate from the root disk so the server can be rebuilt without it. `data_disk_gb` (30 GB since 2026-11-27, 6.9 GB used then); grown online, never shrunk in place (below). |
 | `aws_dlm_lifecycle_policy.data` | One snapshot a night at `snapshot_time_utc`, `snapshot_keep_days` kept. Crash-consistent (like pulling the power): SQLite recovers from its WAL, and the time is outside every session, when the bot is not running. The bot's own daily backup stays the consistent copy. |
 | `aws_eip.bot` | Fixed address: the domain's A record at Namecheap and the Webull key binding. |
 | `aws_security_group.bot` | Port 443 in, nothing else. No SSH: sessions through SSM. |
 | `aws_secretsmanager_secret.bot_env` (`tickr-bot/env`) | The bot's credential variables, filled by the owner. A resource policy denies reading the value to every principal but the server role, account admins included (they can still write it, and change the policy on the record). This guards the API call only: anyone allowed to open an SSM session on the server gets a shell there and can read the value through the server role. CloudTrail records every session, so keep SSM session rights to the owner. |
 | `aws_iam_role.bot` | SSM sessions, read of that one secret, one CloudWatch namespace (`Tickr/Bot`). Denied all SSM parameters. |
 | Alarms `tickr-bot-system-check`, `tickr-bot-instance-check` | AWS hardware failure: the server is recovered onto new hardware and the owner is mailed. Operating system hung: mail only (a reboot is the owner's call while a position may be open). |
+| Alarm `tickr-bot-data-disk-low` | The data disk's free space under `data_disk_low_percent` (the heartbeat sends it each minute): grow the disk. About 0.40 USD a month (one custom metric and one alarm). |
 | Alarm `tickr-bot-cpu-surplus-charged` | Any hour in which CPU above the t3 baseline was billed: the signal to resize on measured load. About 0.10 USD a month (one standard alarm; owner yes 2026-11-27). |
 | Metadata: hop limit 1 and `tickr-imds-block.service` | Only root's host units (secrets, heartbeat, image pull) reach the server role; the bot's containers (host networking, uid `service_uid`) are refused the metadata address. |
 
@@ -90,6 +91,37 @@ ID=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScri
   --parameters 'commands=["iptables -S OUTPUT | grep 169.254.169.254","sudo -u tickr curl -s -m 3 http://169.254.169.254/ || echo blocked-for-tickr"]' \
   --query Command.CommandId --output text)
 sleep 10; aws ssm get-command-invocation --command-id "$ID" --instance-id "$IID" --query '[Status,StandardOutputContent]' --output text
+```
+
+### Grow the data disk (online)
+
+Raise `data_disk_gb`, apply (the disk grows in place, the server keeps running), then in an SSM
+session `sudo resize2fs "$(findmnt -n -o SOURCE /srv/tickr/data)"`.
+
+### Smaller data disk (once, 2026-11-27, while flat)
+
+EBS cannot shrink a disk. `move-data-disk.sh` snapshots the old disk, copies the folder to a new
+one with the bot stopped (a few minutes), and puts the new disk where the old one was; it never
+deletes anything. Then Terraform is pointed at the new disk; `prevent_destroy` stays on.
+```sh
+cd ~/Development/tickr-infra/ops/aws/bot && export AWS_PROFILE=tickr
+sh move-data-disk.sh 30
+terraform state rm aws_volume_attachment.data aws_ebs_volume.data
+terraform import aws_ebs_volume.data <new disk id, printed by the script>
+terraform import aws_volume_attachment.data /dev/sdf:<new disk id>:<instance id>
+terraform plan -var alert_email=...
+```
+The plan must not create, destroy or replace anything (a tag or `stop_instance_before_detaching`
+on the attachment may update in place). The old disk stays detached and the snapshot kept: delete
+the old disk with `aws ec2 delete-volume` after the bot has run on the new one for a few days.
+
+The heartbeat script that sends the free space arrived after the first boot; install it once:
+```sh
+IID=$(terraform output -raw instance_id)
+B=$(base64 < files/tickr-heartbeat | tr -d '\n')
+ID=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \
+  --parameters "commands=[\"echo $B | base64 -d > /usr/local/bin/tickr-heartbeat\",\"chmod 755 /usr/local/bin/tickr-heartbeat\"]" \
+  --query Command.CommandId --output text)
 ```
 
 ## Runtime on the server (first boot)
