@@ -18,7 +18,7 @@ What it creates:
 ## Apply (owner, on the Mac)
 
 ```sh
-cd ~/Development/Tickr && git switch main && git pull
+cd ~/Development/tickr-infra && git switch main && git pull
 cd ops/aws/account && export AWS_PROFILE=tickr
 terraform init
 aws cloudtrail describe-trails --include-shadow-trails   # must list nothing, or the trail is a billed second copy

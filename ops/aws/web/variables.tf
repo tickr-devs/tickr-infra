@@ -45,7 +45,7 @@ variable "overwritten_keep_days" {
 }
 
 variable "service_uid" {
-  description = "uid and gid of the server's tickrweb account, which owns the app's secret files (mode 600). Must equal the USER uid in web/Dockerfile (web/tests/test_deploy.py checks it)."
+  description = "uid and gid of the server's tickrweb account, which owns the app's secret files (mode 600). Must equal the USER uid in tickr-web web/Dockerfile (checked by this repo's CI)."
   type        = number
   default     = 10001
 }

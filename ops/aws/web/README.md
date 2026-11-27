@@ -42,7 +42,7 @@ HTTPS is strict for a year on `tickr.bot` **and every subdomain** (HSTS with
 
 1. Create the stack (needs `brew install terraform awscli` and the admin profile):
    ```sh
-   cd ~/Development/Tickr/ops/aws/web
+   cd ~/Development/tickr-infra/ops/aws/web
    terraform init
    terraform apply -var alert_email='you@example.com'
    terraform output dns_records_for_namecheap
@@ -58,7 +58,7 @@ HTTPS is strict for a year on `tickr.bot` **and every subdomain** (HSTS with
    every email has an unsubscribe link". Usually approved within a day.
 4. First release, with the built public site:
    ```sh
-   ops/aws/web/ship.sh /path/to/site-v2/out
+   cd ~/Development/tickr-web && web/deploy/ship.sh /path/to/site-v2/out
    ```
    Caddy gets the HTTPS certificate by itself once the DNS records have spread (minutes to an
    hour).
@@ -77,10 +77,10 @@ HTTPS is strict for a year on `tickr.bot` **and every subdomain** (HSTS with
 The alarms came after the first setup. Apply once, then ship, so the machine may send the backup
 point before `backup.sh` starts sending it:
 ```sh
-cd ~/Development/Tickr && git switch main && git pull
+cd ~/Development/tickr-infra && git switch main && git pull
 cd ops/aws/web && terraform plan -var alert_email='you@example.com'   # adds only the alarms, topic, health check and one role statement
 terraform apply -var alert_email='you@example.com'
-cd ~/Development/Tickr && ops/aws/web/ship.sh
+cd ~/Development/tickr-web && web/deploy/ship.sh
 ```
 Confirm the link AWS mails. The plan must not replace `aws_instance.web`.
 
@@ -106,9 +106,15 @@ terraform apply -target=aws_instance.web -var alert_email=unused
 
 ## Later releases
 
-`ops/aws/web/ship.sh` (app only) or `ops/aws/web/ship.sh SITE_DIR` (app and site), from a
-clean `web/` at a commit that is on `origin/main` (reviewed and merged; ship.sh refuses any
-other). Migrations run when the app starts. Each release removes the previous image.
+`web/deploy/ship.sh` (app only) or `web/deploy/ship.sh SITE_DIR` (app and site), run in a
+tickr-web clone next to this one (or with `TICKR_INFRA_DIR`), from a clean `web/` at a commit
+that is on `origin/main` (reviewed and merged; ship.sh refuses any other). Migrations run when
+the app starts. Each release removes the previous image, and restarts Caddy when the release
+changed the Caddyfile.
+
+Terraform ignores changes to `user-data.sh` on the running server. After a change to the
+`tickr-web-deploy` script in it, install that script once with
+`ops/aws/web/update-deploy-script.sh` (it replaces only that file).
 
 A release lives in `releases/` for `keep_days` only. The server keeps what it installed, so
 that matters only for a new machine: run `ship.sh SITE_DIR` once after creating one.

@@ -32,7 +32,7 @@ The training stack stays separate: the research user's rights cover only machine
 
 ```sh
 export AWS_PROFILE=tickr
-cd ~/Development/Tickr/ops/aws/bot
+cd ~/Development/tickr-infra/ops/aws/bot
 terraform init
 terraform apply -var alert_email='you@example.com'
 ```
@@ -125,10 +125,10 @@ apply, the owner sets the repository variable once (a variable, not a secret: an
 credential):
 
 ```sh
-gh variable set AWS_IMAGE_PUSH_ROLE --repo tickr-devs/Tickr --body "$(terraform output -raw image_push_role)"
+gh variable set AWS_IMAGE_PUSH_ROLE --repo tickr-devs/tickr-bot --body "$(terraform output -raw image_push_role)"
 ```
 
-From then on `.github/workflows/server-image.yml` builds every change on main that touches the
+From then on tickr-bot's `.github/workflows/server-image.yml` builds every change on main that touches the
 image and pushes `tickr-bot:<commit>`. The server pulls with its own role (pull only). The
 image's user has uid and gid `service_uid` (1500), the same as the server's `tickr` account.
 A test (`tests/ops/test_server_uid.py`) keeps the two values equal. A re-run for a commit

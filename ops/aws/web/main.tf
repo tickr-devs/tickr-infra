@@ -118,6 +118,12 @@ resource "aws_s3_bucket_policy" "web" {
 
 # --- Email: SES sends from the domain; DKIM records go into Namecheap DNS (outputs) ------------
 
+# Never send again to an address that bounced or complained (account-wide, all identities).
+# Stated in the SES production-access request, so it must stay on.
+resource "aws_sesv2_account_suppression_attributes" "web" {
+  suppressed_reasons = ["BOUNCE", "COMPLAINT"]
+}
+
 resource "aws_sesv2_email_identity" "domain" {
   email_identity = var.domain
 }
