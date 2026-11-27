@@ -8,6 +8,9 @@
 }
 
 {$TICKR_DOMAIN} {
+	# Browsers that saw it use only HTTPS for this host for a year. No
+	# includeSubDomains or preload: tickr.bot's own header already covers its subdomains.
+	header Strict-Transport-Security "max-age=31536000"
 	reverse_proxy 127.0.0.1:{$TICKR_API_REMOTE_PORT} {
 		# The API's failed-token limit counts by the last X-Forwarded-For entry when the peer is
 		# 127.0.0.1: set it to the TCP client explicitly, never from what the client sent.
