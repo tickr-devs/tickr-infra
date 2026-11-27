@@ -60,6 +60,10 @@ put /etc/systemd/system/tickr-heartbeat.timer '${files["tickr-heartbeat.timer"]}
 put /etc/caddy/Caddyfile '${files["Caddyfile"]}' 644
 install -d /etc/systemd/system/caddy.service.d
 put /etc/systemd/system/caddy.service.d/tickr.conf '${files["caddy-tickr.conf"]}' 644
+put /etc/systemd/system/tickr-imds-block.service '${files["tickr-imds-block.service"]}' 644
+# The service account's uid, for tickr-imds-block.service (not a secret).
+echo "TICKR_SERVICE_UID=${service_uid}" > /srv/tickr/etc/uid.env
+chmod 644 /srv/tickr/etc/uid.env
 echo "TICKR_DOMAIN=${bot_domain}" > /srv/tickr/etc/domain.env
 chmod 644 /srv/tickr/etc/domain.env
 # Region for the AWS CLI in tickr-secrets and tickr-heartbeat, so it never depends on a lookup.
@@ -70,6 +74,7 @@ echo "TICKR_IMAGE_REPOSITORY=${image_repository}" > /srv/tickr/etc/registry.env
 chmod 644 /srv/tickr/etc/registry.env
 
 systemctl daemon-reload
+systemctl enable --now tickr-imds-block.service
 # The heartbeat needs /srv/tickr/etc/ports.env, written by the first deploy (render-systemd);
 # until then it fails and the heartbeat alarm stays on, as it should. It runs on the host,
 # not in a container, so it reaches the instance role with the metadata hop limit of 1.

@@ -23,6 +23,11 @@ variable "guardduty_min_severity" {
 }
 
 variable "alert_email" {
-  description = "Address account-level security findings are mailed to. Personal data: pass it at apply time (-var or an untracked tfvars file), never commit it. AWS mails a confirmation link once."
+  description = "Address GuardDuty findings are mailed to; needed only with guardduty_enabled. Personal data: pass it at apply time (-var or an untracked tfvars file), never commit it. AWS mails a confirmation link once."
   type        = string
+  default     = ""
+  validation {
+    condition     = !var.guardduty_enabled || var.alert_email != ""
+    error_message = "alert_email: set it when guardduty_enabled is true, or the findings go nowhere."
+  }
 }

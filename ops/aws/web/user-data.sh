@@ -7,6 +7,15 @@
 set -eu
 apt-get update -q
 apt-get install -y -q docker.io docker-compose-v2 rsync unzip
+
+# Swap file (variable swap_gb): headroom for image builds on the small machine.
+if [ ! -f /swapfile ]; then
+  fallocate -l ${swap_gb}G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+swapon --show | grep -q /swapfile || swapon /swapfile
 systemctl enable --now docker
 
 # AWS CLI in /usr/local/bin (on every PATH, systemd units and SSM included): pinned version,

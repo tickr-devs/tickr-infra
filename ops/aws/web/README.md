@@ -4,10 +4,11 @@ One small server for the public site, the web app (`web/`) and its Postgres, apa
 (owner decision 2026-11-25: a break-in through the website must not reach the broker keys).
 It shares no role, secret or network with the bot. DNS stays at Namecheap.
 
-What it creates (about **17.50 USD a month**):
-- `tickr-web`: t4g.small (2 Graviton vCPU, 2 GB), Ubuntu 24.04, 20 GB encrypted gp3, an Elastic
-  IP. Only ports 80 and 443 are open; no SSH, the owner reaches it through SSM. About 12.30 USD
-  for the machine, 1.60 for the disk and 3.65 for the public IPv4 address.
+What it creates (about **11.40 USD a month**):
+- `tickr-web`: t4g.micro (2 Graviton vCPU, 1 GB, a 1 GB swap file), Ubuntu 24.04, 20 GB
+  encrypted gp3, an Elastic IP. Only ports 80 and 443 are open; no SSH, the owner reaches it
+  through SSM. About 6.13 USD for the machine, 1.60 for the disk and 3.65 for the public IPv4
+  address. Sized on measured use; `instance_type` grows it.
 - `tickr-web-<account id>`: private, encrypted, versioned S3 bucket, TLS only: `backups/`
   (nightly `pg_dump`) and `releases/` (what `ship.sh` uploads). Each object is deleted after
   `keep_days` (30); an overwritten or expired one is kept `overwritten_keep_days` (7) more, so
@@ -31,7 +32,7 @@ HTTPS is strict for a year on `tickr.bot` **and every subdomain** (HSTS with
 - Alarms mailed to `alert_email` (topic `tickr-web-alarms`; confirm AWS's link once):
   `tickr-web-system-check` (AWS hardware failed; the machine is also recovered onto new
   hardware), `tickr-web-instance-check` (the system does not answer), `tickr-web-site-down`
-  (a Route 53 health check cannot fetch `https://tickr.bot/` for `site_down_minutes`) and
+  (a Route 53 health check cannot fetch `https://tickr.bot/` for `site_down_minutes`; it does not check the certificate, which Caddy renews by itself) and
   `tickr-web-backup-missing` (no dump uploaded for `backup_missing_hours`; `backup.sh` sends one
   point after each upload). About 1.20 USD a month: 0.50 for the health check, 0.40 for four
   alarms, 0.30 for the backup metric. The backup alarm stays on until the first night after the
@@ -46,6 +47,8 @@ HTTPS is strict for a year on `tickr.bot` **and every subdomain** (HSTS with
    terraform apply -var alert_email='you@example.com'
    terraform output dns_records_for_namecheap
    ```
+   Open the mail from AWS Notifications and confirm the subscription: until then no alarm
+   reaches you.
 2. Namecheap > Domain List > tickr.bot > Advanced DNS: delete the old A/CNAME records for `@`
    and `www` (the free hosting), then add every record from the output (A `@`, A `www`, TXT
    `_dmarc`, three CNAME `…._domainkey`).
@@ -80,6 +83,26 @@ terraform apply -var alert_email='you@example.com'
 cd ~/Development/tickr-web && web/deploy/ship.sh
 ```
 Confirm the link AWS mails. The plan must not replace `aws_instance.web`.
+
+## Move the running server to t4g.micro (once)
+
+The first server was a t4g.small. Add the swap file first (user-data.sh runs only at first
+boot), then apply the new size; the apply stops and starts the machine (1-2 minutes of
+downtime, the database stays on its disk):
+```sh
+cd ~/Development/tickr-infra && git switch main && git pull
+cd ops/aws/web && export AWS_PROFILE=tickr
+IID=$(terraform output -raw instance_id)
+ID=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \
+  --parameters 'commands=["set -e","[ -f /swapfile ] || { fallocate -l 1G /swapfile; chmod 600 /swapfile; mkswap /swapfile; echo \"/swapfile none swap sw 0 0\" >> /etc/fstab; }","swapon --show | grep -q /swapfile || swapon /swapfile","swapon --show"]' \
+  --query Command.CommandId --output text)
+sleep 10; aws ssm get-command-invocation --command-id "$ID" --instance-id "$IID" --query '[Status,StandardOutputContent]' --output text
+# Only the machine: the alarms of "Turn on the alarms" stay off until the owner turns them on.
+# alert_email is required by the stack but unused by this one resource.
+terraform plan -target=aws_instance.web -var alert_email=unused   # only instance_type t4g.small -> t4g.micro, in place
+terraform apply -target=aws_instance.web -var alert_email=unused
+```
+`1G` is `swap_gb`. Then open https://tickr.bot and sign in once.
 
 ## Later releases
 
