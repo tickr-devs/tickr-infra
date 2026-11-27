@@ -43,7 +43,7 @@ variable "snapshot_time_utc" {
 variable "bot_domain" {
   description = "Name the apps reach the bot at over HTTPS (Caddy's certificate name). Its A record at Namecheap points at the server_address output; the API's remote_hosts_file must list it."
   type        = string
-  default     = "bot.tickr.bot"
+  default     = "api.tickr.bot"
 }
 
 variable "heartbeat_missing_minutes" {
