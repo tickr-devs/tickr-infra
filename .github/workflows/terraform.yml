@@ -1,17 +1,14 @@
 name: terraform
-# Checks the infrastructure code in ops/aws/ (the training stack, the bot server, the web server and the account settings): formatting
-# and `terraform validate` with providers downloaded but no AWS credentials, so nothing is read
-# from or changed in the account. Applying stays the owner's step on his Mac.
+# Checks the infrastructure code in ops/aws/ (the bot server, the web server and the account
+# settings; the training stack stays in tickr-bot with the research code it runs): formatting and
+# `terraform validate` with providers downloaded but no AWS credentials, so nothing is read from or
+# changed in the account. Applying stays the owner's step on his Mac. Both jobs are required
+# checks, so they run on every pull request, in the merge queue and on main (no path filters).
 on:
   pull_request:
-    paths:
-      - ops/aws/**
-      - .github/workflows/terraform.yml
+  merge_group:
   push:
     branches: [main]
-    paths:
-      - ops/aws/**
-      - .github/workflows/terraform.yml
 concurrency:
   group: terraform-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -24,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stack: [ops/aws/training, ops/aws/bot, ops/aws/web, ops/aws/account]
+        stack: [ops/aws/bot, ops/aws/web, ops/aws/account]
     steps:
       - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
@@ -38,3 +35,35 @@ jobs:
         run: |
           terraform -chdir=${{ matrix.stack }} init -backend=false -input=false
           terraform -chdir=${{ matrix.stack }} validate
+  server-uids:
+    # Each server's service account and its image's user share one uid (the bind-mounted secrets
+    # are mode 600). The images are built in the sibling public repos, so their files are read from
+    # their main branches: tickr-bot's server-image.yml (TICKR_UID/TICKR_GID) against
+    # ops/aws/bot service_uid, tickr-web's web/Dockerfile (USER uid:gid) against ops/aws/web
+    # service_uid. A change of a uid lands in the other repo first, then here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compare service_uid with the image users
+        run: |
+          set -eu
+          default_uid() {
+            python3 - "$1" <<'PY'
+          import re, sys
+          text = open(sys.argv[1]).read()
+          match = re.search(r'variable "service_uid" \{.*?default\s*=\s*(\d+)', text, re.DOTALL)
+          print(match.group(1) if match else "")
+          PY
+          }
+          raw=https://raw.githubusercontent.com/tickr-devs
+          curl -fsSL "$raw/tickr-bot/main/.github/workflows/server-image.yml" -o bot-image.yml
+          curl -fsSL "$raw/tickr-web/main/web/Dockerfile" -o web-Dockerfile
+          bot_uid=$(sed -n 's/^ *TICKR_UID: "\([0-9]*\)"$/\1/p' bot-image.yml)
+          bot_gid=$(sed -n 's/^ *TICKR_GID: "\([0-9]*\)"$/\1/p' bot-image.yml)
+          web_user=$(sed -n 's/^USER \([0-9]*:[0-9]*\)$/\1/p' web-Dockerfile)
+          bot_tf=$(default_uid ops/aws/bot/variables.tf)
+          web_tf=$(default_uid ops/aws/web/variables.tf)
+          echo "bot: image $bot_uid:$bot_gid, service_uid $bot_tf; web: image $web_user, service_uid $web_tf"
+          test -n "$bot_uid" && test "$bot_uid" = "$bot_gid" && test "$bot_uid" = "$bot_tf"
+          test -n "$web_user" && test "$web_user" = "$web_tf:$web_tf"
