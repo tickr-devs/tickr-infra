@@ -74,7 +74,7 @@ HTTPS is strict for a year on `tickr.bot` **and every subdomain** (HSTS with
 The alarms came after the first setup. Apply once, then ship, so the machine may send the backup
 point before `backup.sh` starts sending it:
 ```sh
-cd ~/Development/tickr-web && git switch main && git pull
+cd ~/Development/tickr-infra && git switch main && git pull
 cd ops/aws/web && terraform plan -var alert_email='you@example.com'   # adds only the alarms, topic, health check and one role statement
 terraform apply -var alert_email='you@example.com'
 cd ~/Development/tickr-web && web/deploy/ship.sh

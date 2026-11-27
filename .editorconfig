@@ -7,11 +7,6 @@ end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
-# Swift: 2-space indentation (docs/design-system.md, .swiftlint.yml).
-[*.swift]
+[*.tf]
 indent_style = space
 indent_size = 2
-
-[*.py]
-indent_style = space
-indent_size = 4
