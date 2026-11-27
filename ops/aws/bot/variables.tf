@@ -5,7 +5,7 @@ variable "region" {
 }
 
 variable "instance_type" {
-  description = "Bot server type, the one setting to resize the server. Owner 2026-11-27: run the smallest type that may fit and watch it, instead of a week of measurements first: t3.small (2 vCPU, 2 GB, about $15 a month on-demand; t3.medium has 4 GB for about $30). Signs it is too small: alarm tickr-bot-cpu-surplus-charged (CPU billed above the baseline) or tickr-bot-heartbeat (the API stopped answering, e.g. a container killed for memory). Grow it when the live model and the Massive feed are switched on (spec thread estimate: models 1-3 GB in memory). A change stops and starts the server on apply: only while flat."
+  description = "Bot server type, the one setting to resize the server. Owner 2026-11-27: run the smallest type that may fit and watch it, instead of a week of measurements first: t3.small (2 vCPU, 2 GB, about $15 a month on-demand; t3.medium has 4 GB for about $30). Signs it is too small: alarm tickr-bot-cpu-surplus-charged (CPU billed above the baseline) or tickr-bot-heartbeat (the server or the API stopped answering, e.g. the API container killed for memory; the bot's own process killed for memory is reported by its watchdog on Telegram, not by an AWS alarm). Read free -m and docker stats --no-stream while bot, API and watchdog run, and in the first trading session, and write the peak here. Grow it when the live model and the Massive feed are switched on (spec thread estimate: models 1-3 GB in memory). A change stops and starts the server on apply: only while flat."
   type        = string
   default     = "t3.small"
 }
