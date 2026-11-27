@@ -5,9 +5,9 @@ variable "region" {
 }
 
 variable "instance_type" {
-  description = "Bot server type, the one setting to grow the server. Owner 2026-11-25: start small (t3.medium = 2 vCPU, 4 GB, about $30 a month on-demand) and grow when needed, e.g. when the live model and the Massive feed are switched on (spec thread estimate: models 1-3 GB in memory, live features unmeasured). A change stops and starts the server on apply: only on a weekend while flat."
+  description = "Bot server type, the one setting to resize the server. Owner 2026-11-27: run the smallest type that may fit and watch it, instead of a week of measurements first: t3.small (2 vCPU, 2 GB, about $15 a month on-demand; t3.medium has 4 GB for about $30). Signs it is too small: alarm tickr-bot-cpu-surplus-charged (CPU billed above the baseline) or tickr-bot-heartbeat (the server or the API stopped answering, e.g. the API container killed for memory; the bot's own process killed for memory is reported by its watchdog on Telegram, not by an AWS alarm). Read free -m and docker stats --no-stream while bot, API and watchdog run, and in the first trading session, and write the peak here. Grow it when the live model and the Massive feed are switched on (spec thread estimate: models 1-3 GB in memory). A change stops and starts the server on apply: only while flat."
   type        = string
-  default     = "t3.medium"
+  default     = "t3.small"
 }
 
 variable "subnet_id" {
@@ -23,9 +23,9 @@ variable "root_disk_gb" {
 }
 
 variable "data_disk_gb" {
-  description = "Data disk in GB, mounted at /srv/tickr/data: the bot's data folder ([run] data_dir: SQLite database, archives, Webull token). Separate from the root disk so the server can be rebuilt without touching it."
+  description = "Data disk in GB, mounted at /srv/tickr/data: the bot's data folder ([run] data_dir: SQLite database, archives, Webull token). Separate from the root disk so the server can be rebuilt without touching it. 30 since 2026-11-27 (6.9 GB used then, of 100): growing it is online (raise this, apply, then resize2fs in an SSM session); EBS cannot shrink a disk, so a smaller one is a new disk and a copy (README)."
   type        = number
-  default     = 100
+  default     = 30
 }
 
 variable "snapshot_keep_days" {

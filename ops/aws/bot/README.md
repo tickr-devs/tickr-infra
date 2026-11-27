@@ -14,8 +14,8 @@ monthly cost at the same time.
 
 | Resource | Why |
 |---|---|
-| `aws_instance.bot` (`var.instance_type`, Ubuntu 24.04, IMDSv2, termination protection) | The bot, the API and the live feed. Starts small (t3.medium); growing it is a change of `instance_type` alone, applied on a weekend while flat (the apply stops and starts the server; disks and address stay). CPU credits `unlimited`: never throttled; CPU above t3's baseline is billed extra (at most about $0.05 per vCPU-hour). |
-| `aws_ebs_volume.data` (gp3, encrypted, `prevent_destroy`) at `/srv/tickr/data` | The data folder: SQLite, archives, Webull token. Separate from the root disk so the server can be rebuilt without it. |
+| `aws_instance.bot` (`var.instance_type`, Ubuntu 24.04, IMDSv2, termination protection) | The bot, the API and the live feed. The smallest type that may fit (t3.small since 2026-11-27; CPU watched by an alarm, memory by `free -m` and `docker stats --no-stream` in the first sessions, a bot killed for memory reported by its watchdog); resizing is a change of `instance_type` alone, applied while flat (the apply stops and starts the server; disks and address stay). CPU credits `unlimited`: never throttled; CPU above t3's baseline is billed extra (at most about $0.05 per vCPU-hour). |
+| `aws_ebs_volume.data` (gp3, encrypted, `prevent_destroy`) at `/srv/tickr/data` | The data folder: SQLite, archives, Webull token. Separate from the root disk so the server can be rebuilt without it. `data_disk_gb` (30 GB since 2026-11-27, 6.9 GB used then); grown online, never shrunk in place (below). |
 | `aws_dlm_lifecycle_policy.data` | One snapshot a night at `snapshot_time_utc`, `snapshot_keep_days` kept. Crash-consistent (like pulling the power): SQLite recovers from its WAL, and the time is outside every session, when the bot is not running. The bot's own daily backup stays the consistent copy. |
 | `aws_eip.bot` | Fixed address: the domain's A record at Namecheap and the Webull key binding. |
 | `aws_security_group.bot` | Port 443 in, nothing else. No SSH: sessions through SSM. |
@@ -91,6 +91,53 @@ ID=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScri
   --query Command.CommandId --output text)
 sleep 10; aws ssm get-command-invocation --command-id "$ID" --instance-id "$IID" --query '[Status,StandardOutputContent]' --output text
 ```
+
+### Grow the data disk (online)
+
+Raise `data_disk_gb`, apply (the disk grows in place, the server keeps running), then in an SSM
+session `sudo resize2fs "$(findmnt -n -o SOURCE /srv/tickr/data)"`.
+
+### Smaller data disk (once, 2026-11-27)
+
+EBS cannot shrink a disk. `move-data-disk.sh` snapshots the old disk, copies the folder to a new
+one with Docker stopped (a few minutes), compares checksums of every file, and puts the new disk
+where the old one was; it never deletes anything. Then Terraform is pointed at the new disk;
+`prevent_destroy` stays on.
+
+When: only the API and the watchdog may run (the script refuses otherwise, before it creates
+anything; it starts the watchdog again after the copy), so after 20:00 ET or at the weekend;
+not at 19:00 ET on a weekday (`tickr-nightly-fetch`) and not at `snapshot_time_utc`. The API is
+down during the copy, so `tickr-bot-heartbeat` mails "down" and then "OK".
+
+Run it before the first apply with `data_disk_gb` = 30: until then a plan would try to shrink the
+old disk, which AWS refuses. No `apply` between `state rm` and the second `import`: in that gap
+Terraform does not know the disk and would plan a new empty one at `/dev/sdf`.
+```sh
+cd ~/Development/tickr-infra/ops/aws/bot && export AWS_PROFILE=tickr
+sh move-data-disk.sh 30
+terraform state pull > ~/state-before-move.json
+terraform state rm aws_volume_attachment.data aws_ebs_volume.data
+terraform import aws_ebs_volume.data <new disk id, printed by the script>
+terraform import aws_volume_attachment.data /dev/sdf:<new disk id>:<instance id>
+terraform plan -var alert_email=...
+```
+The plan must show exactly: `aws_instance.bot` updated in place (`instance_type`, when t3.small
+is applied with it; the apply stops and starts the server), `aws_volume_attachment.data` updated
+in place (`stop_instance_before_detaching`), `aws_ebs_volume.data` unchanged, nothing created,
+destroyed or replaced, and under "Changes to Outputs" the new `data_volume_id`. Stop on anything else (`~/state-before-move.json` is the state before).
+Delete the old disk (`aws ec2 delete-volume`) after the bot has run on the new one for a few days;
+keep the snapshot until then too.
+
+#### If the move stops
+
+The script prints what it left behind and the disks' attachments. Do not run it again first:
+each run makes a new snapshot and a new disk.
+- It stopped before "copied" (the server step restores itself): the bot is on the old disk. Delete
+  the new disk once it is detached (`aws ec2 detach-volume --volume-id NEW`, then
+  `aws ec2 delete-volume --volume-id NEW`) and the snapshot (`aws ec2 delete-snapshot
+  --snapshot-id SNAP`), then find the cause before a new run.
+- It stopped after "copied": `/etc/fstab` names the new disk. Finish forward or go back as the
+  script's header says; delete nothing until the bot runs again.
 
 ## Runtime on the server (first boot)
 

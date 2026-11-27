@@ -27,3 +27,8 @@ output "service_uid" {
   description = "uid of the server's tickr account (variable service_uid): the README's metadata-block step writes it into /srv/tickr/etc/uid.env."
   value       = var.service_uid
 }
+
+output "data_volume_id" {
+  description = "Id of the data disk (aws_ebs_volume.data), checked after a move of the data folder (README)."
+  value       = aws_ebs_volume.data.id
+}
