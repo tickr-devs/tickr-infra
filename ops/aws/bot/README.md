@@ -104,7 +104,8 @@ one with Docker stopped (a few minutes), compares checksums of every file, and p
 where the old one was; it never deletes anything. Then Terraform is pointed at the new disk;
 `prevent_destroy` stays on.
 
-When: only the API may run (the script refuses otherwise), so after 20:00 ET or at the weekend;
+When: only the API and the watchdog may run (the script refuses otherwise, before it creates
+anything; it starts the watchdog again after the copy), so after 20:00 ET or at the weekend;
 not at 19:00 ET on a weekday (`tickr-nightly-fetch`) and not at `snapshot_time_utc`. The API is
 down during the copy, so `tickr-bot-heartbeat` mails "down" and then "OK".
 
@@ -123,7 +124,7 @@ terraform plan -var alert_email=...
 The plan must show exactly: `aws_instance.bot` updated in place (`instance_type`, when t3.small
 is applied with it; the apply stops and starts the server), `aws_volume_attachment.data` updated
 in place (`stop_instance_before_detaching`), `aws_ebs_volume.data` unchanged, nothing created,
-destroyed or replaced. Stop on anything else (`~/state-before-move.json` is the state before).
+destroyed or replaced, and under "Changes to Outputs" the new `data_volume_id`. Stop on anything else (`~/state-before-move.json` is the state before).
 Delete the old disk (`aws ec2 delete-volume`) after the bot has run on the new one for a few days;
 keep the snapshot until then too.
 

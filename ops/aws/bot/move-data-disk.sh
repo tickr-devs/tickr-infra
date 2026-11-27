@@ -1,15 +1,16 @@
 #!/bin/sh
 # Moves the bot's data folder to a new, smaller data disk (EBS cannot shrink a disk). The owner
-# runs it on the Mac in ops/aws/bot with AWS_PROFILE set, when only the API runs (after 20:00 ET
-# or at the weekend; README, "Smaller data disk"):
+# runs it on the Mac in ops/aws/bot with AWS_PROFILE set, when only the API and the watchdog run
+# (after 20:00 ET or at the weekend; README, "Smaller data disk"):
 #
 #     sh move-data-disk.sh 30
 #
+# 0. On the server (SSM), read-only: refuse unless the old disk is the data folder and only the
+#    API and the watchdog run. A refusal here leaves nothing behind.
 # 1. Snapshot of the old disk (kept until the new one has run a few days).
 # 2. New encrypted gp3 disk of SIZE_GB, tagged like the old one, attached as a second disk.
-# 3. On the server (SSM): refuse unless the API is the only container running; format the new
-#    disk, stop the active tickr units and Docker, copy the folder, compare checksums of every
-#    file, point /etc/fstab at the new disk.
+# 3. On the server: the same checks again; format the new disk, stop the active tickr units and
+#    Docker, copy the folder, compare checksums of every file, point /etc/fstab at the new disk.
 # 4. Detach both disks, attach the new one where the old one was (/dev/sdf).
 # 5. On the server: mount it, start Docker and the units that were active, check the containers
 #    that ran before run again. Remove the nightly-snapshot tag from the old disk.
@@ -74,6 +75,15 @@ on_server() {
   [ "$st" = Success ]
 }
 
+OLD_DEV=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_$(echo "$OLD" | tr -d -)
+# Read-only checks first, so a refusal leaves nothing behind: the old disk is the data folder, and
+# nothing but the API and the watchdog runs (the watchdog is started again after the move).
+on_server "set -eu
+[ \"\$(findmnt -n -o SOURCE /srv/tickr/data)\" = \"\$(readlink -f $OLD_DEV)\" ] || { echo 'old disk not at /srv/tickr/data'; exit 1; }
+others=\$(docker ps --format '{{.Label \"com.docker.compose.service\"}}' | grep -vx -e api -e watchdog || true)
+[ -z \"\$others\" ] || { echo \"refused: running besides the API and the watchdog: \$others (run after 20:00 ET or at the weekend)\"; exit 1; }
+echo checks passed"
+
 SNAP=$(aws ec2 create-snapshot --volume-id "$OLD" --description "tickr-bot-data before the move" \
   --tag-specifications 'ResourceType=snapshot,Tags=[{Key=Name,Value=tickr-bot-data-before-move},{Key=tickr:stack,Value=bot}]' \
   --query SnapshotId --output text)
@@ -88,7 +98,6 @@ aws ec2 attach-volume --volume-id "$NEW" --instance-id "$IID" --device /dev/sdg 
 aws ec2 wait volume-in-use --volume-ids "$NEW"
 echo "new disk $NEW attached"
 
-OLD_DEV=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_$(echo "$OLD" | tr -d -)
 NEW_DEV=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_$(echo "$NEW" | tr -d -)
 STATE=/srv/tickr/etc
 
@@ -117,8 +126,8 @@ for _ in \$(seq 1 60); do [ -e $NEW_DEV ] && break; sleep 2; done
 [ -e $NEW_DEV ] || { echo 'new disk not visible'; exit 1; }
 if blkid $NEW_DEV; then echo 'new disk already holds a filesystem'; exit 1; fi
 [ \"\$(findmnt -n -o SOURCE /srv/tickr/data)\" = \"\$(readlink -f $OLD_DEV)\" ] || { echo 'old disk not at /srv/tickr/data'; exit 1; }
-others=\$(docker ps --format '{{.Label \"com.docker.compose.service\"}}' | grep -vx api || true)
-[ -z \"\$others\" ] || { echo \"refused: running besides the API: \$others (run after 20:00 ET or at the weekend)\"; exit 1; }
+others=\$(docker ps --format '{{.Label \"com.docker.compose.service\"}}' | grep -vx -e api -e watchdog || true)
+[ -z \"\$others\" ] || { echo \"refused: running besides the API and the watchdog: \$others (run after 20:00 ET or at the weekend)\"; exit 1; }
 docker ps --format '{{.Names}}' > $STATE/move-containers
 systemctl list-units 'tickr-*' --state=active --plain --no-legend | awk '{print \$1}' \
   | grep -v -e '^tickr-heartbeat' -e '^tickr-secrets' -e '^tickr-imds-block' > $STATE/move-units || true
@@ -153,6 +162,8 @@ grep -q \"^UUID=\$new_uuid /srv/tickr/data \" /etc/fstab
 trap - ERR
 systemctl daemon-reload
 # systemd may mount the new fstab line by itself now; both disks must be free to detach.
+udevadm settle
+sleep 5
 if mountpoint -q /srv/tickr/data; then umount /srv/tickr/data; fi
 echo copied"
 
