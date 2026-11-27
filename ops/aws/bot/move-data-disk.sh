@@ -12,8 +12,17 @@
 # 5. On the server: mount it, start Docker and the units that were running.
 #
 # The old disk stays detached, never deleted here. Afterwards Terraform is pointed at the new disk
-# (README, "Smaller data disk"). On a failure before step 4 the old disk is still in /etc/fstab:
-# in an SSM session, `mount /srv/tickr/data && systemctl start docker` puts things back.
+# (README, "Smaller data disk").
+#
+# On a failure in step 3 the server step itself puts the old disk back at /srv/tickr/data and
+# restarts Docker and the units. After step 3 (/etc/fstab names the new disk) a stop in step 4
+# or 5 is finished by hand: attach the new disk at /dev/sdf if it is not
+# (`aws ec2 attach-volume --volume-id NEW --instance-id IID --device /dev/sdf`), then in an SSM
+# session `mount /srv/tickr/data && systemctl start docker.socket docker.service &&
+# systemctl start $(cat /srv/tickr/etc/move-units)`. Or go back to the old disk: detach the new
+# one, attach the old one at /dev/sdf, put the old UUID (`blkid` of the old disk) back on the
+# /srv/tickr/data line of /etc/fstab, then the same mount and start commands. The old disk and the
+# snapshot stay intact either way.
 set -eu
 SIZE_GB=${1:?usage: sh move-data-disk.sh SIZE_GB}
 : "${AWS_PROFILE:?set AWS_PROFILE}"
@@ -24,20 +33,27 @@ case "$OLD" in vol-*) ;; *) echo "no data disk at /dev/sdf"; exit 1 ;; esac
 AZ=$(aws ec2 describe-volumes --volume-ids "$OLD" --query 'Volumes[0].AvailabilityZone' --output text)
 echo "server $IID, old disk $OLD ($AZ), new size $SIZE_GB GB"
 
-# Runs a shell script on the server as root; prints its output, fails unless it succeeded.
+TMP=$(mktemp -d)
+# Runs a shell script on the server as root; prints its output, fails unless it succeeded. Waits
+# for the end however long the copy takes (the CLI waiter gives up after 100 s; SSM ends a command
+# after its 3600 s execution timeout). Only "not registered yet" is waited out; any other error
+# of the read stops the move.
 on_server() {
   b=$(printf '%s\n' "$1" | base64 | tr -d '\n')
   cid=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \
     --parameters "commands=[\"echo $b | base64 -d | bash\"]" --query Command.CommandId --output text)
-  # Waits for the end however long the copy takes (the CLI waiter gives up after 100 s).
   while :; do
     sleep 5
-    st=$(aws ssm get-command-invocation --command-id "$cid" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)
+    if ! st=$(aws ssm get-command-invocation --command-id "$cid" --instance-id "$IID" --query Status --output text 2>"$TMP/err"); then
+      grep -q InvocationDoesNotExist "$TMP/err" && continue
+      cat "$TMP/err"
+      return 1
+    fi
     case "$st" in Pending | InProgress | Delayed) ;; *) break ;; esac
   done
   aws ssm get-command-invocation --command-id "$cid" --instance-id "$IID" \
-    --query '[Status,StandardOutputContent,StandardErrorContent]' --output text | tee move-step.out
-  head -1 move-step.out | grep -q '^Success' && rm move-step.out
+    --query '[Status,StandardOutputContent,StandardErrorContent]' --output text | tee "$TMP/out"
+  [ "$st" = Success ]
 }
 
 SNAP=$(aws ec2 create-snapshot --volume-id "$OLD" --description "tickr-bot-data before the move" \
@@ -56,7 +72,17 @@ echo "new disk $NEW attached"
 
 OLD_DEV=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_$(echo "$OLD" | tr -d -)
 NEW_DEV=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_$(echo "$NEW" | tr -d -)
-on_server "set -eu
+on_server "set -eEu
+units=''
+# Until /etc/fstab names the new disk: any failure puts the old disk back and restarts the bot.
+restore() {
+  echo 'failed: restoring the old disk and the bot'
+  mountpoint -q /mnt/tickr-new && umount /mnt/tickr-new
+  mountpoint -q /srv/tickr/data || mount /srv/tickr/data
+  systemctl start docker.socket docker.service
+  [ -z \"\$units\" ] || systemctl start \$units
+}
+trap restore ERR
 for _ in \$(seq 1 60); do [ -e $NEW_DEV ] && break; sleep 2; done
 [ -e $NEW_DEV ] || { echo 'new disk not visible'; exit 1; }
 if blkid $NEW_DEV; then echo 'new disk already holds a filesystem'; exit 1; fi
@@ -73,12 +99,13 @@ old_n=\$(find /srv/tickr/data | wc -l); new_n=\$(find /mnt/tickr-new | wc -l)
 old_b=\$(find /srv/tickr/data -type f -printf '%s\\n' | awk '{s+=\$1} END {print s+0}')
 new_b=\$(find /mnt/tickr-new -type f -printf '%s\\n' | awk '{s+=\$1} END {print s+0}')
 echo \"files \$old_n -> \$new_n, bytes \$old_b -> \$new_b\"
-[ \"\$old_n\" = \"\$new_n\" ] && [ \"\$old_b\" = \"\$new_b\" ] || { echo 'copy differs: old disk kept, bot restarted'; umount /mnt/tickr-new; systemctl start docker.socket docker.service; [ -z \"\$units\" ] || systemctl start \$units; exit 1; }
+[ \"\$old_n\" = \"\$new_n\" ] && [ \"\$old_b\" = \"\$new_b\" ] || { echo 'copy differs'; false; }
 old_uuid=\$(blkid -s UUID -o value $OLD_DEV); new_uuid=\$(blkid -s UUID -o value $NEW_DEV)
 umount /mnt/tickr-new
 umount /srv/tickr/data
 sed -i \"s/^UUID=\$old_uuid /UUID=\$new_uuid /\" /etc/fstab
 grep -q \"^UUID=\$new_uuid /srv/tickr/data \" /etc/fstab
+trap - ERR
 systemctl daemon-reload
 echo copied"
 

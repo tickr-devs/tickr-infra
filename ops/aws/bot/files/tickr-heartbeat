@@ -2,11 +2,11 @@
 # One CloudWatch data point a minute while this server and its local API answer. The alarm
 # tickr-bot-heartbeat (main.tf) mails the owner when the points stop: the server is down,
 # hung or cut off, which the bot's own watchdog on this same server cannot report.
-# Before it, the data disk's free space (percent) for alarm tickr-bot-data-disk-low, sent even
-# when the API does not answer.
+# After it, the data disk's free space (percent) for alarm tickr-bot-data-disk-low; a failure
+# there fails the unit but never costs the heartbeat point.
 # TICKR_API_PORT comes from /srv/tickr/etc/ports.env (rendered from config/bot.toml [api] port).
 set -eu
-used=$(df --output=pcent /srv/tickr/data | tail -1 | tr -dc 0-9)
-aws cloudwatch put-metric-data --namespace Tickr/Bot --metric-name DataDiskFreePercent --unit Percent --value $((100 - used))
 curl -fsS -o /dev/null --max-time 10 "http://127.0.0.1:$TICKR_API_PORT/"
 aws cloudwatch put-metric-data --namespace Tickr/Bot --metric-name Heartbeat --value 1
+used=$(df --output=pcent /srv/tickr/data | tail -1 | tr -dc 0-9)
+aws cloudwatch put-metric-data --namespace Tickr/Bot --metric-name DataDiskFreePercent --unit Percent --value $((100 - used))
