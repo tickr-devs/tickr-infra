@@ -1,0 +1,12 @@
+# Terraform working files and state: state never enters the repository (it holds resource ids and
+# outputs); it lives on the owner's Mac until it moves to an S3 backend.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+# Values passed at apply time (personal data such as alert_email).
+*.tfvars
+!example.tfvars
+.env
+.env.*
