@@ -64,7 +64,9 @@ Until then the bot's jobs refuse to start, as they require `tickr-secrets.servic
 Terraform ignores a new Ubuntu image and changes to `user-data.sh` on the existing server, so an
 apply never stops or replaces it. A change to the first-boot script is run once through SSM
 while the bot is flat, or the server is rebuilt on a weekend while flat: turn off termination
-protection, `terraform apply -replace=aws_instance.bot`; the data disk and address stay.
+protection, `terraform apply -replace=aws_instance.bot`; the data disk and address stay. After a
+rebuild, check in an SSM session that `cloud-init status --long` says `done` (the script is
+passed gzipped since tickr-infra #7) and rerun the metadata-block checks below.
 
 ### Metadata block on the server already running (once, while flat)
 

@@ -35,6 +35,11 @@ jobs:
         run: |
           terraform -chdir=${{ matrix.stack }} init -backend=false -input=false
           terraform -chdir=${{ matrix.stack }} validate
+      - name: User data size
+        # validate never renders templatefile(); this renders each first-boot script and fails
+        # above EC2's 16 KB user-data limit (ops/aws/checks/user_data_size.py).
+        if: matrix.stack != 'ops/aws/account'
+        run: python3 ops/aws/checks/user_data_size.py ${{ matrix.stack }}
   server-uids:
     # Each server's service account and its image's user share one uid (the bind-mounted secrets
     # are mode 600). The images are built in the sibling public repos, so their files are read from
