@@ -43,7 +43,7 @@ variable "snapshot_time_utc" {
 variable "bot_domain" {
   description = "Name the apps reach the bot at over HTTPS (Caddy's certificate name). Its A record at Namecheap points at the server_address output; the API's remote_hosts_file must list it."
   type        = string
-  default     = "bot.tickr.bot"
+  default     = "api.tickr.bot"
 }
 
 variable "heartbeat_missing_minutes" {
@@ -53,15 +53,15 @@ variable "heartbeat_missing_minutes" {
 }
 
 variable "service_uid" {
-  description = "uid and gid of the server's tickr account. Must equal TICKR_UID and TICKR_GID in .github/workflows/server-image.yml, which builds the image's user with them."
+  description = "uid and gid of the server's tickr account. Must equal TICKR_UID and TICKR_GID in tickr-bot .github/workflows/server-image.yml (checked by this repo's CI), which builds the image's user with them."
   type        = number
   default     = 1500
 }
 
 variable "github_repo" {
-  description = "GitHub repository whose main-branch workflow may push the release image (OIDC trust of role tickr-image-push), exactly as the OIDC subject names it. The organisation uses immutable ids in the subject (owner@owner_id/name@repo_id), read from CloudTrail on 2026-11-26; the ids are public, not credentials."
+  description = "GitHub repository whose main-branch workflow may push the release image (OIDC trust of role tickr-image-push), exactly as the OIDC subject names it. The organisation uses immutable ids in the subject (owner@owner_id/name@repo_id), read from CloudTrail on 2026-11-26; since the repo split on 2026-11-27 the repository is tickr-bot (id 1474696769, was Tickr 1458033118); the ids are public, not credentials."
   type        = string
-  default     = "tickr-devs@357523297/Tickr@1458033118"
+  default     = "tickr-devs@357523297/tickr-bot@1474696769"
 }
 
 variable "images_kept" {

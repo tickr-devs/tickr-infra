@@ -22,11 +22,8 @@ command_id=$(aws ssm send-command --instance-ids "$instance" \
   --comment "tickr-web-deploy update" \
   --parameters "commands=[\"echo $encoded | base64 -d > /usr/local/bin/tickr-web-deploy.new && bash -n /usr/local/bin/tickr-web-deploy.new && chmod 755 /usr/local/bin/tickr-web-deploy.new && mv /usr/local/bin/tickr-web-deploy.new /usr/local/bin/tickr-web-deploy && echo installed\"]" \
   --query Command.CommandId --output text)
-while :; do
-  sleep 3
-  status=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$instance" \
-    --query Status --output text 2>/dev/null || echo Pending)
-  case "$status" in Pending|InProgress|Delayed) ;; *) break ;; esac
-done
+# The CLI's own waiter gives up after its fixed number of checks and fails on any error (expired
+# sign-in, missing permission); the result below is printed either way.
+aws ssm wait command-executed --command-id "$command_id" --instance-id "$instance" || true
 aws ssm get-command-invocation --command-id "$command_id" --instance-id "$instance" \
   --query '[Status, StandardOutputContent, StandardErrorContent]' --output text
