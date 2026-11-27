@@ -225,7 +225,9 @@ resource "aws_instance" "bot" {
     http_put_response_hop_limit = 1
   }
 
-  user_data = templatefile("${path.module}/user-data.sh", {
+  # Gzipped: the script with its runtime files is over EC2's 16 KB user-data limit as plain text.
+  # cloud-init recognises gzip and unpacks it before running the script.
+  user_data_base64 = base64gzip(templatefile("${path.module}/user-data.sh", {
     data_volume_id   = aws_ebs_volume.data.id
     aws_cli_version  = var.installers.aws_cli_version
     aws_cli_sha256   = var.installers.aws_cli_sha256
@@ -235,7 +237,7 @@ resource "aws_instance" "bot" {
     service_uid      = var.service_uid
     # Runtime files (files/), passed as base64 so the template never interprets their text.
     files = { for name in local.runtime_files : name => filebase64("${path.module}/files/${name}") }
-  })
+  }))
 
   tags = {
     Name         = "tickr-bot"
@@ -245,7 +247,9 @@ resource "aws_instance" "bot" {
   # A new Ubuntu image or a changed first-boot script must not stop or replace the running bot
   # on the next apply. Both take effect only on a deliberate rebuild (README).
   lifecycle {
-    ignore_changes = [ami, user_data]
+    # user_data and user_data_base64 both: the running server was created with plain user_data,
+    # so moving to the gzipped form must not count as a change either.
+    ignore_changes = [ami, user_data, user_data_base64]
   }
 }
 
