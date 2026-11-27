@@ -174,6 +174,21 @@ leak nothing, and the owner has decided which commands may be reached from the i
 2. In an SSM session on the server: `sudo systemctl enable --now caddy`.
 3. Add the `bot_domain` A record at the registrar, pointing at `server_address`.
 
+### Caddyfile on the running server
+
+A change to `files/Caddyfile` reaches the running server through SSM; a reload keeps
+connections and does not touch the bot:
+```sh
+cd ~/Development/tickr-infra/ops/aws/bot && export AWS_PROFILE=tickr
+IID=$(terraform output -raw instance_id)
+B=$(base64 < files/Caddyfile | tr -d '\n')
+ID=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \
+  --parameters "commands=[\"set -e\",\"echo $B | base64 -d > /etc/caddy/Caddyfile.new\",\"set -a; . /srv/tickr/etc/domain.env; . /srv/tickr/etc/ports.env; set +a; caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile\",\"mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile\",\"systemctl reload caddy\",\"systemctl is-active caddy\"]" \
+  --query Command.CommandId --output text)
+sleep 10; aws ssm get-command-invocation --command-id "$ID" --instance-id "$IID" --query '[Status,StandardOutputContent]' --output text
+```
+`caddy validate` refuses a broken file before it replaces the running one.
+
 ## Release image
 
 `image.tf` adds the registry `tickr-bot` (immutable tags, scanned on push, the newest
