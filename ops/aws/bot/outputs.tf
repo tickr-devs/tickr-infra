@@ -29,6 +29,6 @@ output "service_uid" {
 }
 
 output "data_volume_id" {
-  description = "Id of the data disk (aws_ebs_volume.data), read by move-data-disk.sh."
+  description = "Id of the data disk (aws_ebs_volume.data), checked after a move of the data folder (README)."
   value       = aws_ebs_volume.data.id
 }

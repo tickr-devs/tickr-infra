@@ -103,6 +103,8 @@ session `sudo resize2fs "$(findmnt -n -o SOURCE /srv/tickr/data)"`.
 EBS cannot shrink a disk. `move-data-disk.sh` snapshots the old disk, copies the folder to a new
 one with the bot stopped (a few minutes), and puts the new disk where the old one was; it never
 deletes anything. Then Terraform is pointed at the new disk; `prevent_destroy` stays on.
+Run it before the first apply with `data_disk_gb` = 30: until then the plan would try to shrink
+the old disk, which AWS refuses.
 ```sh
 cd ~/Development/tickr-infra/ops/aws/bot && export AWS_PROFILE=tickr
 sh move-data-disk.sh 30

@@ -18,7 +18,9 @@ set -eu
 SIZE_GB=${1:?usage: sh move-data-disk.sh SIZE_GB}
 : "${AWS_PROFILE:?set AWS_PROFILE}"
 IID=$(terraform output -raw instance_id)
-OLD=$(terraform output -raw data_volume_id)
+OLD=$(aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values=$IID" "Name=attachment.device,Values=/dev/sdf" \
+  --query 'Volumes[0].VolumeId' --output text)
+case "$OLD" in vol-*) ;; *) echo "no data disk at /dev/sdf"; exit 1 ;; esac
 AZ=$(aws ec2 describe-volumes --volume-ids "$OLD" --query 'Volumes[0].AvailabilityZone' --output text)
 echo "server $IID, old disk $OLD ($AZ), new size $SIZE_GB GB"
 
