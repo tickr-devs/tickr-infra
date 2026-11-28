@@ -8,14 +8,25 @@ name: reviewer-approve
 # Who can trigger it: only a comment written by the owner's account (immutable user id below,
 # checked again by the caller), on an open pull request, with a line exactly
 # "/approve <40-hex head sha>". The sha must equal the pull request's head right now, and the
-# review is pinned to that commit, so a push after the verdict can never ride on it. Nothing from
-# the pull request is checked out or run.
+# review is posted on that commit. Pinning alone does not stop a later push from merging on the
+# approval: the base branch's ruleset must also have "Dismiss stale pull request approvals when new
+# commits are pushed" and "Require approval of the most recent reviewable push", and this job
+# refuses to approve when either is off. Nothing from the pull request is checked out or run.
+#
+# This records the Reviewer's verdict on GitHub; it is not an independent control. Every Claude
+# thread writes as the owner's account, so any of them could post the command, and this job knows
+# nothing of CI or Fable (the Reviewer checks those before it writes the line).
 #
 # One-time setup by the owner (README "Reviewer approvals"): the App, its id in the organization
 # variable TICKR_REVIEWER_APP_ID and its private key in the organization secret
-# TICKR_REVIEWER_KEY. The key is read only by openssl from a mode-600 file and never printed.
+# TICKR_REVIEWER_KEY. The key is read only by openssl from a mode-600 file and never printed; the
+# installation token is revoked when the job ends.
 on:
   workflow_call:
+    secrets:
+      TICKR_REVIEWER_KEY:
+        description: "Private key (PEM) of the tickr-reviewer GitHub App; read only to sign its JWT"
+        required: true
 permissions:
   pull-requests: read
 jobs:
@@ -51,17 +62,34 @@ jobs:
           [ -n "$APP_ID" ] || { echo "refused: organization variable TICKR_REVIEWER_APP_ID is not set" >&2; exit 1; }
           [ -n "$APP_KEY" ] || { echo "refused: organization secret TICKR_REVIEWER_KEY is not set" >&2; exit 1; }
 
-          read -r state head < <(gh api "repos/$REPO/pulls/$PR" --jq '"\(.state) \(.head.sha)"')
+          read -r state head base < <(gh api "repos/$REPO/pulls/$PR" \
+            --jq '"\(.state) \(.head.sha) \(.base.ref)"')
           if [ "$state" != "open" ]; then
             echo "refused: pull request #$PR is $state" >&2; exit 1
           fi
           if [ "$head" != "$sha" ]; then
             echo "refused: the verdict names $sha but the head of #$PR is now $head" >&2; exit 1
           fi
+          # A later push must drop this approval and need a new one, or it would merge unreviewed.
+          guarded=$(gh api "repos/$REPO/rules/branches/$base" --jq '[.[] | select(.type == "pull_request")
+            | select(.parameters.dismiss_stale_reviews_on_push and .parameters.require_last_push_approval)]
+            | length')
+          if [ "$guarded" -eq 0 ]; then
+            echo "refused: the $base ruleset needs 'Dismiss stale pull request approvals' and 'Require approval of the most recent reviewable push'" >&2
+            exit 1
+          fi
 
           # A ten-minute App JWT (RS256), signed by openssl from a private file.
           key="$RUNNER_TEMP/app-key.pem"
-          trap 'rm -f "$key"' EXIT
+          token=""
+          revoke() {
+            rm -f "$key"
+            if [ -n "$token" ]; then
+              curl -sS -o /dev/null -X DELETE -H "Authorization: Bearer $token" \
+                -H "Accept: application/vnd.github+json" https://api.github.com/installation/token || true
+            fi
+          }
+          trap revoke EXIT
           (umask 077; printf '%s\n' "$APP_KEY" > "$key")
           b64() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
           now=$(date +%s)

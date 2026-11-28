@@ -20,10 +20,17 @@ approval. The Reviewer's verdict therefore becomes a real approval by a GitHub A
 identity, `tickr-reviewer`. When the owner's account (in practice the Reviewer thread) comments a
 line `/approve <40-hex head sha>` on an open pull request, each repository's `approve` workflow
 calls `.github/workflows/reviewer-approve.yml` here, which checks that the sha is still the head and
-has the App approve exactly that commit. With "Dismiss stale approvals" on, any later push drops it.
+has the App approve exactly that commit. The job refuses unless the base branch's ruleset has
+"Dismiss stale pull request approvals when new commits are pushed" and "Require approval of the
+most recent reviewable push", so any later push drops the approval and needs a new one.
+
+This records the Reviewer's verdict on GitHub; it is not an independent control. Every Claude
+thread writes as the owner's account, so any of them could post the command, and the job knows
+nothing of CI or Fable. The Reviewer checks those (and Fable at the exact head where required)
+before it writes the `/approve` line, and threads never approve their own pull requests.
 
 The App has Contents and Pull requests write on the four repositories (contents write is what makes
 GitHub count its approval); the workflow never checks out or runs pull request code. Its id is the
 organization variable `TICKR_REVIEWER_APP_ID`, its private key the organization secret
-`TICKR_REVIEWER_KEY`; both are set by the owner in GitHub settings, never in a file or a chat.
+`TICKR_REVIEWER_KEY` (each caller passes only this secret; the token is revoked at the end); both are set by the owner in GitHub settings, never in a file or a chat.
 The org setting "Allow GitHub Actions to create and approve pull requests" stays off: it is not used.
