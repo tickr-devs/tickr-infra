@@ -74,7 +74,8 @@ jobs:
           guarded=$(gh api "repos/$REPO/rules/branches/$base" --jq '[.[] | select(.type == "pull_request")
             | select(.parameters.dismiss_stale_reviews_on_push and .parameters.require_last_push_approval)]
             | length')
-          if [ "$guarded" -eq 0 ]; then
+          # Fails closed: an empty or non-numeric answer is a refusal too.
+          if ! [ "$guarded" -ge 1 ] 2>/dev/null; then
             echo "refused: the $base ruleset needs 'Dismiss stale pull request approvals' and 'Require approval of the most recent reviewable push'" >&2
             exit 1
           fi
@@ -119,6 +120,14 @@ jobs:
               '{commit_id: $sha, event: "APPROVE",
                 body: ("Approved at " + $sha + " on the Reviewer verdict " + $url)}')" \
             | jq -r '"review \(.id) \(.state) at \(.commit_id) by \(.user.login)"'
+
+          # A push that landed between the head check and the review is dismissed by the ruleset;
+          # say so loudly rather than report success.
+          after=$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha')
+          if [ "$after" != "$sha" ]; then
+            echo "refused: #$PR moved to $after while approving $sha; that approval is stale" >&2
+            exit 1
+          fi
 
           # shellcheck disable=SC2016 # $owner, $name and $pr are GraphQL variables.
           decision=$(gh api graphql -F owner="${REPO%/*}" -F name="${REPO#*/}" -F pr="$PR" -f query='

@@ -28,6 +28,8 @@ This records the Reviewer's verdict on GitHub; it is not an independent control.
 thread writes as the owner's account, so any of them could post the command, and the job knows
 nothing of CI or Fable. The Reviewer checks those (and Fable at the exact head where required)
 before it writes the `/approve` line, and threads never approve their own pull requests.
+Keep each ruleset's bypass list empty: a bypass for the owner's account would let every thread
+merge without any approval, since they all write as that account.
 
 The App has Contents and Pull requests write on the four repositories (contents write is what makes
 GitHub count its approval); the workflow never checks out or runs pull request code. Its id is the
