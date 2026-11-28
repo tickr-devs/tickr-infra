@@ -114,18 +114,26 @@ jobs:
             | jq -r '.token')
           echo "::add-mask::$token"
 
-          api -X POST -H "Authorization: Bearer $token" \
+          review=$(api -X POST -H "Authorization: Bearer $token" \
             "https://api.github.com/repos/$REPO/pulls/$PR/reviews" \
             -d "$(jq -n --arg sha "$sha" --arg url "$COMMENT_URL" \
               '{commit_id: $sha, event: "APPROVE",
-                body: ("Approved at " + $sha + " on the Reviewer verdict " + $url)}')" \
-            | jq -r '"review \(.id) \(.state) at \(.commit_id) by \(.user.login)"'
+                body: ("Approved at " + $sha + " on the Reviewer verdict " + $url)}')")
+          jq -r '"review \(.id) \(.state) at \(.commit_id) by \(.user.login)"' <<<"$review"
+          review_id=$(jq -r '.id' <<<"$review")
 
-          # A push that landed between the head check and the review is dismissed by the ruleset;
-          # say so loudly rather than report success.
+          # A push that landed between the head check and the review must not ride on it. Whether
+          # the ruleset dismisses a review posted after the push is not verified, so the App
+          # dismisses its own review itself and the run fails.
           after=$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha')
           if [ "$after" != "$sha" ]; then
-            echo "refused: #$PR moved to $after while approving $sha; that approval is stale" >&2
+            api -X PUT -H "Authorization: Bearer $token" \
+              "https://api.github.com/repos/$REPO/pulls/$PR/reviews/$review_id/dismissals" \
+              -d "$(jq -n --arg sha "$sha" --arg after "$after" \
+                '{message: ("Dismissed: the head moved from " + $sha + " to " + $after + " while approving"),
+                  event: "DISMISS"}')" \
+              | jq -r '"review \(.id) is now \(.state)"'
+            echo "refused: #$PR moved to $after while approving $sha; the approval was dismissed" >&2
             exit 1
           fi
 
