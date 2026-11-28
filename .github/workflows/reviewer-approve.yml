@@ -19,7 +19,7 @@ on:
 permissions:
   pull-requests: read
 jobs:
-  approve:
+  pr-approve-as-app:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # The owner's GitHub user id (valentyn-dymaretskyi); a login can be renamed, an id cannot.
