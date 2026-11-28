@@ -125,7 +125,8 @@ jobs:
           # A push that landed between the head check and the review must not ride on it. Whether
           # the ruleset dismisses a review posted after the push is not verified, so the App
           # dismisses its own review itself and the run fails.
-          after=$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha')
+          # A failed re-read counts as moved: dismiss rather than leave an unchecked approval.
+          after=$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha') || after="unknown"
           if [ "$after" != "$sha" ]; then
             api -X PUT -H "Authorization: Bearer $token" \
               "https://api.github.com/repos/$REPO/pulls/$PR/reviews/$review_id/dismissals" \
